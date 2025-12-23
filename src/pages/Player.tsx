@@ -55,7 +55,14 @@ export default function Player() {
 
     try {
       const response = await api.answers.submit({
-        attempt_id: session.attempt_id,
+const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
+
+const response = await api.answers.submit({
+  attempt_id: attemptId,
+  question_id: currentQuestion.question_id,
+  chosen_index: choiceIndex,
+});
+
         question_id: currentQuestion.question_id,
         chosen_index: choiceIndex,
       });
@@ -99,7 +106,14 @@ export default function Player() {
 
     try {
       const response = await api.answers.submit({
-        attempt_id: session.attempt_id,
+const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
+
+const response = await api.answers.submit({
+  attempt_id: attemptId,
+  question_id: currentQuestion.question_id,
+  is_dont_know: true,
+});
+
         question_id: currentQuestion.question_id,
         is_dont_know: true,
       });
