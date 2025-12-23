@@ -47,22 +47,17 @@ export default function Player() {
 
   const currentQuestion = session?.questions[session.current_index];
 
-  const handleAnswer = useCallback(async (choiceIndex: 0 | 1 | 2 | 3) => {
+    const handleAnswer = useCallback(async (choiceIndex: 0 | 1 | 2 | 3) => {
     if (!session || !currentQuestion || isSubmitting) return;
 
     setIsSubmitting(true);
     setSelectedIndex(choiceIndex);
 
     try {
+      const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
+
       const response = await api.answers.submit({
-const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
-
-const response = await api.answers.submit({
-  attempt_id: attemptId,
-  question_id: currentQuestion.question_id,
-  chosen_index: choiceIndex,
-});
-
+        attempt_id: attemptId,
         question_id: currentQuestion.question_id,
         chosen_index: choiceIndex,
       });
@@ -78,19 +73,15 @@ const response = await api.answers.submit({
       }
 
       // Success
-      if (response.was_correct) {
-        haptic.success();
-      } else {
-        haptic.error();
-      }
+      if (response.was_correct) haptic.success();
+      else haptic.error();
 
       setCurrentResult(response);
 
       // Save answer to session
       const updatedAnswers = { ...session.answers, [currentQuestion.question_id]: response };
       sessionStorage.update({ answers: updatedAnswers });
-      setSession(prev => prev ? { ...prev, answers: updatedAnswers } : null);
-
+      setSession(prev => (prev ? { ...prev, answers: updatedAnswers } : null));
     } catch (error) {
       console.error('Failed to submit answer:', error);
       haptic.error();
@@ -99,21 +90,17 @@ const response = await api.answers.submit({
     }
   }, [session, currentQuestion, isSubmitting, navigate]);
 
-  const handleDontKnow = useCallback(async () => {
+
+    const handleDontKnow = useCallback(async () => {
     if (!session || !currentQuestion || isSubmitting) return;
 
     setIsSubmitting(true);
 
     try {
+      const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
+
       const response = await api.answers.submit({
-const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
-
-const response = await api.answers.submit({
-  attempt_id: attemptId,
-  question_id: currentQuestion.question_id,
-  is_dont_know: true,
-});
-
+        attempt_id: attemptId,
         question_id: currentQuestion.question_id,
         is_dont_know: true,
       });
@@ -131,8 +118,7 @@ const response = await api.answers.submit({
       // Save answer
       const updatedAnswers = { ...session.answers, [currentQuestion.question_id]: response };
       sessionStorage.update({ answers: updatedAnswers });
-      setSession(prev => prev ? { ...prev, answers: updatedAnswers } : null);
-
+      setSession(prev => (prev ? { ...prev, answers: updatedAnswers } : null));
     } catch (error) {
       console.error('Failed to submit dont know:', error);
       haptic.error();
@@ -140,6 +126,7 @@ const response = await api.answers.submit({
       setIsSubmitting(false);
     }
   }, [session, currentQuestion, isSubmitting]);
+
 
   const handleStaleQuestion = async () => {
     if (!session || !currentQuestion) return;
