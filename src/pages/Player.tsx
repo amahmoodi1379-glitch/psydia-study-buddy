@@ -45,7 +45,7 @@ export default function Player() {
     setIsLoading(false);
   };
 
-  const currentQuestion = session?.questions[session.current_index];
+const currentQuestion = session?.questions?.[session.current_index];
 
     const handleAnswer = useCallback(async (choiceIndex: 0 | 1 | 2 | 3) => {
     if (!session || !currentQuestion || isSubmitting) return;
