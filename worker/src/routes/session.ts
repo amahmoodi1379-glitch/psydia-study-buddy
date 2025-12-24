@@ -10,6 +10,13 @@ export async function handleSession(request: Request, env: Env, pathname: string
   if (!auth.ok) return json({ error: auth.error }, 401, origin);
   const userId = auth.uid;
 
+  interface SubmitAnswerBody {
+    attempt_id: string;
+    question_id: string;
+    chosen_index?: number;
+    is_dont_know?: boolean;
+  }
+
   // POST /sessions/create
   if (pathname === "/api/app/v1/sessions/create" && request.method === "POST") {
     const body: any = await safeJson(request);
@@ -111,22 +118,30 @@ export async function handleSession(request: Request, env: Env, pathname: string
   // POST /answers/submit
   if (pathname === "/api/app/v1/answers/submit" && request.method === "POST") {
     let attemptId: string | undefined;
+    const replayAttempt = async (id: string) => {
+      const existing = await sbSelectOne(
+        env,
+        "user_question_attempt",
+        `user_id=eq.${userId}&attempt_id=eq.${id}`,
+        "was_correct,ef_after,interval_after,correct_choice_index,explanation_text"
+      );
+      if (!existing) return null;
+      return json({ 
+        was_correct: existing.was_correct, 
+        correct_choice_index: existing.correct_choice_index, 
+        explanation_text: existing.explanation_text,
+        sm2: { ef: existing.ef_after, interval: existing.interval_after }
+      }, 200, origin);
+    };
     try {
-      const body: any = await safeJson(request);
+      const body = await safeJson(request) as SubmitAnswerBody;
       const { attempt_id, question_id, chosen_index, is_dont_know } = body;
       attemptId = attempt_id;
 
       // FIX: Idempotency check - if attempt already exists, return previous result
       // This prevents 500 errors on double-clicks or retries
-      const existing = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&attempt_id=eq.${attempt_id}`, "was_correct,ef_after,interval_after,correct_choice_index,explanation_text");
-      if (existing) {
-         return json({ 
-          was_correct: existing.was_correct, 
-          correct_choice_index: existing.correct_choice_index, 
-          explanation_text: existing.explanation_text,
-          sm2: { ef: existing.ef_after, interval: existing.interval_after }
-        }, 200, origin);
-      }
+      const replayed = await replayAttempt(attempt_id);
+      if (replayed) return replayed;
 
       const q = await sbSelectOne(env, "questions", `id=eq.${question_id}`, "id,subtopic_id,correct_choice_index,explanation_text");
       if (!q) return json({ code: "QUESTION_NOT_FOUND" }, 200, origin); // Or handle stale session logic
@@ -207,15 +222,8 @@ export async function handleSession(request: Request, env: Env, pathname: string
         if (!attemptId) {
           return json({ error: "INTERNAL_ERROR" }, 500, origin);
         }
-        const existing = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&attempt_id=eq.${attemptId}`, "was_correct,ef_after,interval_after,correct_choice_index,explanation_text");
-        if (existing) {
-          return json({ 
-            was_correct: existing.was_correct, 
-            correct_choice_index: existing.correct_choice_index, 
-            explanation_text: existing.explanation_text,
-            sm2: { ef: existing.ef_after, interval: existing.interval_after }
-          }, 200, origin);
-        }
+        const replayed = await replayAttempt(attemptId);
+        if (replayed) return replayed;
         return json({ error: "INTERNAL_ERROR" }, 500, origin);
       }
       return json({ error: "INTERNAL_ERROR" }, 500, origin);
