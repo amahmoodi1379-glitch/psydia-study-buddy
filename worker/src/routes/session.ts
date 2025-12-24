@@ -220,7 +220,9 @@ export async function handleSession(request: Request, env: Env, pathname: string
      
      const bRows = await sbSelect(env, "user_bookmark", `user_id=eq.${userId}&order=created_at.desc&limit=${pageSize}&offset=${from}`, "question_id,created_at");
      
-     if (!bRows.length) return json({ page, page_size: pageSize, total: 0, items: [] }, 200, origin);
+     if (!bRows.length) {
+        return json({ items: [], has_more: false, next_page: null }, 200, origin);
+     }
 
      const ids = bRows.map((r:any) => r.question_id);
      const qRows = await sbSelect(env, "questions", `id=in.(${ids.join(",")})`, "id,stem_text,subtopic_id");
@@ -243,7 +245,7 @@ export async function handleSession(request: Request, env: Env, pathname: string
      const total = await sbCount(env, "user_bookmark", `user_id=eq.${userId}`);
      const hasMore = from + pageSize < total;
      const nextPage = hasMore ? page + 1 : null;
-     return json({ page, page_size: pageSize, total, has_more: hasMore, next_page: nextPage, items }, 200, origin);
+     return json({ items, has_more: hasMore, next_page: nextPage }, 200, origin);
   }
 
   if (pathname === "/api/app/v1/reports/create") {
