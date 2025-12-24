@@ -29,7 +29,7 @@ export async function handleSession(request: Request, env: Env, pathname: string
     
     // FIX: Added limit=1000 to ensure we load enough history for fill logic
     const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&limit=1000`, "question_id,total_attempts,correct_attempts,next_due_at,box_number");
-    const activeRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true`, "id");
+    const activeRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&limit=10000`, "id");
     const activeIds = new Set(activeRows.map((r:any) => r.id));
     const cooldownCount = size;
     const recentAttempts = await sbSelect(
