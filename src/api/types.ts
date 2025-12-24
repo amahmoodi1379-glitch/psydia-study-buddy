@@ -215,6 +215,7 @@ export interface LocalSession {
   questions: SessionQuestion[];
   current_index: number;
   answers: Record<string, SubmitAnswerSuccessResponse>;
+  question_attempt_ids: Record<string, string>;
   stale_skip_count: number;
   created_at: string;
 }

@@ -110,25 +110,26 @@ export async function handleSession(request: Request, env: Env, pathname: string
 
   // POST /answers/submit
   if (pathname === "/api/app/v1/answers/submit" && request.method === "POST") {
+    let attemptId: string | undefined;
     try {
       const body: any = await safeJson(request);
       const { attempt_id, question_id, chosen_index, is_dont_know } = body;
+      attemptId = attempt_id;
 
       // FIX: Idempotency check - if attempt already exists, return previous result
       // This prevents 500 errors on double-clicks or retries
-      const existing = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&attempt_id=eq.${attempt_id}`, "was_correct,ef_after,interval_after");
-      
-      const q = await sbSelectOne(env, "questions", `id=eq.${question_id}`, "id,subtopic_id,correct_choice_index,explanation_text");
-      if (!q) return json({ code: "QUESTION_NOT_FOUND" }, 200, origin); // Or handle stale session logic
-
+      const existing = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&attempt_id=eq.${attempt_id}`, "was_correct,ef_after,interval_after,correct_choice_index,explanation_text");
       if (existing) {
          return json({ 
           was_correct: existing.was_correct, 
-          correct_choice_index: q.correct_choice_index, 
-          explanation_text: q.explanation_text,
+          correct_choice_index: existing.correct_choice_index, 
+          explanation_text: existing.explanation_text,
           sm2: { ef: existing.ef_after, interval: existing.interval_after }
         }, 200, origin);
       }
+
+      const q = await sbSelectOne(env, "questions", `id=eq.${question_id}`, "id,subtopic_id,correct_choice_index,explanation_text");
+      if (!q) return json({ code: "QUESTION_NOT_FOUND" }, 200, origin); // Or handle stale session logic
 
       const correctIndex = q.correct_choice_index;
       const wasCorrect = !is_dont_know && Number(chosen_index) === Number(correctIndex);
@@ -185,7 +186,9 @@ export async function handleSession(request: Request, env: Env, pathname: string
         was_correct: wasCorrect,
         was_dont_know: is_dont_know,
         ef_after: ef,
-        interval_after: interval
+        interval_after: interval,
+        correct_choice_index: correctIndex,
+        explanation_text: q.explanation_text
       });
 
       await touchUser(env, userId, wasCorrect);
@@ -201,7 +204,19 @@ export async function handleSession(request: Request, env: Env, pathname: string
       console.error("Submit Error:", e);
       // Handle race condition/unique constraint if check failed
       if (e.message && e.message.includes("unique")) {
-         return json({ error: "ALREADY_PROCESSED" }, 200, origin);
+        if (!attemptId) {
+          return json({ error: "INTERNAL_ERROR" }, 500, origin);
+        }
+        const existing = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&attempt_id=eq.${attemptId}`, "was_correct,ef_after,interval_after,correct_choice_index,explanation_text");
+        if (existing) {
+          return json({ 
+            was_correct: existing.was_correct, 
+            correct_choice_index: existing.correct_choice_index, 
+            explanation_text: existing.explanation_text,
+            sm2: { ef: existing.ef_after, interval: existing.interval_after }
+          }, 200, origin);
+        }
+        return json({ error: "INTERNAL_ERROR" }, 500, origin);
       }
       return json({ error: "INTERNAL_ERROR" }, 500, origin);
     }

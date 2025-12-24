@@ -34,12 +34,18 @@ export default function Player() {
       navigate('/');
       return;
     }
-    setSession(savedSession);
+    const normalizedSession = savedSession.question_attempt_ids
+      ? savedSession
+      : { ...savedSession, question_attempt_ids: {} };
+    if (normalizedSession !== savedSession) {
+      sessionStorage.set(normalizedSession);
+    }
+    setSession(normalizedSession);
     
     // Check if current question already has an answer
-    const currentQuestion = savedSession.questions[savedSession.current_index];
-    if (currentQuestion && savedSession.answers[currentQuestion.question_id]) {
-      setCurrentResult(savedSession.answers[currentQuestion.question_id]);
+    const currentQuestion = normalizedSession.questions[normalizedSession.current_index];
+    if (currentQuestion && normalizedSession.answers[currentQuestion.question_id]) {
+      setCurrentResult(normalizedSession.answers[currentQuestion.question_id]);
     }
     
     setIsLoading(false);
@@ -54,10 +60,12 @@ const currentQuestion = session?.questions?.[session.current_index];
     setSelectedIndex(choiceIndex);
 
     try {
-      const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
+      const attemptResult = sessionStorage.ensureQuestionAttemptId(currentQuestion.question_id);
+      if (!attemptResult) return;
+      setSession(attemptResult.session);
 
       const response = await api.answers.submit({
-        attempt_id: attemptId,
+        attempt_id: attemptResult.attemptId,
         question_id: currentQuestion.question_id,
         chosen_index: choiceIndex,
       });
@@ -97,10 +105,12 @@ const currentQuestion = session?.questions?.[session.current_index];
     setIsSubmitting(true);
 
     try {
-      const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
+      const attemptResult = sessionStorage.ensureQuestionAttemptId(currentQuestion.question_id);
+      if (!attemptResult) return;
+      setSession(attemptResult.session);
 
       const response = await api.answers.submit({
-        attempt_id: attemptId,
+        attempt_id: attemptResult.attemptId,
         question_id: currentQuestion.question_id,
         is_dont_know: true,
       });

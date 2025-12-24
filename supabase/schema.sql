@@ -200,6 +200,8 @@ create table if not exists public.user_question_attempt (
   chosen_index smallint null check (chosen_index between 0 and 3),
   was_correct boolean not null default false,
   was_dont_know boolean not null default false,
+  correct_choice_index smallint null check (correct_choice_index between 0 and 3),
+  explanation_text text null,
 
   -- optional before/after snapshots for debugging & analytics
   ef_before numeric(4,2) null,
