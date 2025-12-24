@@ -112,11 +112,11 @@ export default function SubjectStats() {
           <h3 className="text-sm font-medium mb-3">وضعیت سوالات</h3>
           <div className="grid grid-cols-2 gap-3">
             {[
-            { label: 'تسلط کامل', value: stats.bucket_mastered, color: 'text-success' },
-            { label: 'تقریباً تسلط', value: stats.bucket_almost, color: 'text-warning' },
-            { label: 'ضعیف', value: stats.bucket_weak, color: 'text-destructive' },
-            { label: 'ناکافی', value: stats.bucket_insufficient, color: 'text-muted-foreground' },
-          ].map((bucket, index) => (
+              { label: 'تسلط کامل', value: stats.bucket_mastered, color: 'text-success' },
+              { label: 'تقریباً تسلط', value: stats.bucket_almost, color: 'text-warning' },
+              { label: 'ضعیف', value: stats.bucket_weak, color: 'text-destructive' },
+              { label: 'سایر', value: stats.bucket_other, color: 'text-muted-foreground' },
+            ].map((bucket, index) => (
               <div
                 key={bucket.label}
                 className="bg-card rounded-xl border border-border p-4 animate-slide-up"
