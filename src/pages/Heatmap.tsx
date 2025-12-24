@@ -3,7 +3,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { TabBar } from '@/components/TabBar';
 import { PageLoading } from '@/components/LoadingSpinner';
 import { EmptyState } from '@/components/EmptyState';
-import { Layers } from 'lucide-react';
+import { Flame } from 'lucide-react';
 import { api } from '@/api/client';
 import { cn } from '@/lib/utils';
 import type { HeatmapResponse } from '@/api/types';
@@ -15,7 +15,7 @@ const intensityColors = [
   'bg-primary/60',
   'bg-primary',
 ];
-const intensityLabels = ['بدون داده', 'کم', 'متوسط', 'خوب', 'عالی'];
+const intensityLabels = ['بدون فعالیت', 'کم', 'متوسط', 'زیاد', 'خیلی زیاد'];
 
 export default function Heatmap() {
   const [isLoading, setIsLoading] = useState(true);
@@ -37,20 +37,20 @@ export default function Heatmap() {
     }
   };
 
-  const columns = 3;
+  const weeks = heatmap ? Math.ceil(heatmap.days.length / 7) : 0;
 
   return (
     <div className="min-h-screen pb-20">
-      <PageHeader title="نقشه تسلط" showBack backTo="/profile" />
+      <PageHeader title="نقشه فعالیت" showBack backTo="/profile" />
 
       <main className="px-4 py-4 max-w-lg mx-auto">
         {isLoading ? (
           <PageLoading />
-        ) : !heatmap || heatmap.subtopics.length === 0 ? (
+        ) : !heatmap || heatmap.days.length === 0 ? (
           <EmptyState
-            icon={Layers}
+            icon={Flame}
             title="داده‌ای یافت نشد"
-            description="پس از تمرین، نقشه تسلط شما اینجا نمایش داده می‌شود"
+            description="پس از تمرین، نقشه پیشرفت شما اینجا نمایش داده می‌شود"
           />
         ) : (
           <>
@@ -64,20 +64,31 @@ export default function Heatmap() {
               ))}
             </div>
 
-            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
-              {heatmap.subtopics.map((subtopic) => (
-                <div
-                  key={subtopic.subtopic_id}
-                  className={cn(
-                    'rounded-lg p-3 text-xs text-primary-foreground/90 min-h-[64px] flex flex-col justify-between',
-                    intensityColors[Math.min(subtopic.intensity, intensityColors.length - 1)]
-                  )}
-                  title={`${subtopic.subtopic_name} • تسلط ${subtopic.mastery_percent}% • اعتماد ${subtopic.confidence_percent}%`}
-                >
-                  <span className="font-semibold text-[11px] leading-4">{subtopic.subtopic_name}</span>
-                  <span className="text-[10px] opacity-80">تسلط {subtopic.mastery_percent}%</span>
-                </div>
-              ))}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{heatmap.days[0]?.date}</span>
+                <span>{heatmap.days[heatmap.days.length - 1]?.date}</span>
+              </div>
+              <div
+                className="grid gap-2"
+                style={{ gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}
+              >
+                {heatmap.days.map((day, index) => (
+                  <div
+                    key={`${day.date}-${index}`}
+                    className={cn(
+                      'aspect-square rounded-md flex items-center justify-center text-[10px] font-medium text-primary-foreground/80',
+                      intensityColors[Math.min(day.intensity, intensityColors.length - 1)]
+                    )}
+                    title={`${day.date} • ${day.count} سوال`}
+                  >
+                    {new Date(day.date).getUTCDate()}
+                  </div>
+                ))}
+                {Array.from({ length: Math.max(0, weeks * 7 - heatmap.days.length) }).map((_, index) => (
+                  <div key={`empty-${index}`} className="aspect-square rounded-md bg-transparent" />
+                ))}
+              </div>
             </div>
           </>
         )}

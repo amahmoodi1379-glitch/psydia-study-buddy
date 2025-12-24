@@ -69,7 +69,7 @@ export function pickSome(arr: any[], n: number) {
 }
 
 export function computeStatusLabel({ dueCount, weakCount, newCount, totalAnswered, accuracy }: any) {
-  if (totalAnswered < 3) return "beginner";
+  if (totalAnswered < 6) return "beginner";
   if ((accuracy ?? 0) >= 85 && weakCount === 0 && dueCount <= 3) return "mastered";
   if ((accuracy ?? 0) >= 70) return "almost";
   return "in_progress";
