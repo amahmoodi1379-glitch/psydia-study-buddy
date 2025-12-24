@@ -1,281 +1,250 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { QuestionCard } from '@/components/QuestionCard';
-import { ReportModal } from '@/components/ReportModal';
-import { FullPageLoading } from '@/components/LoadingSpinner';
-import { Button } from '@/components/ui/button';
-import { sessionStorage } from '@/lib/storage';
-import { haptic } from '@/lib/telegram';
-import { api } from '@/api/client';
-import { isSubmitError } from '@/api/types';
-import type { LocalSession, SubmitAnswerSuccessResponse, ReportType } from '@/api/types';
+// worker/src/routes/session.ts
+import { Env, sbSelect, sbSelectOne, sbInsert, sbPatch, sbDelete, sbCount, touchUser } from "../lib/db";
+import { json, safeJson, clampInt, shuffle, pickSome, addDaysISO, clampEF } from "../lib/utils";
+import { requireAuth } from "../lib/auth";
 
-const MAX_STALE_SKIPS = 3;
+export async function handleSession(request: Request, env: Env, pathname: string, origin: string) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return json({ error: auth.error }, 401, origin);
+  const userId = auth.uid;
 
-export default function Player() {
-  const navigate = useNavigate();
-  const [session, setSession] = useState<LocalSession | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState<number | undefined>();
-  const [currentResult, setCurrentResult] = useState<SubmitAnswerSuccessResponse | undefined>();
-  const [bookmarkedQuestions, setBookmarkedQuestions] = useState<Set<string>>(new Set());
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [isReporting, setIsReporting] = useState(false);
-  const [staleError, setStaleError] = useState(false);
+  // POST /sessions/create
+  if (pathname === "/api/app/v1/sessions/create" && request.method === "POST") {
+    const body: any = await safeJson(request);
+    const subtopicId = body?.subtopic_id;
+    const mode = body?.mode;
+    const size = clampInt(body?.size ?? 10, 5, 30);
 
-  useEffect(() => {
-    loadSession();
-  }, []);
+    const allowedModes = new Set(["daily_mix", "due_only", "weak_first", "new_only", "bookmarks", "review_free"]);
+    if (!subtopicId) return json({ error: "subtopic_id required" }, 400, origin);
+    if (!allowedModes.has(mode)) return json({ error: "invalid mode" }, 400, origin);
 
-  const loadSession = () => {
-    const savedSession = sessionStorage.get();
-    if (!savedSession || savedSession.question_ids.length === 0) {
-      navigate('/');
-      return;
-    }
-    setSession(savedSession);
+    const sessionId = crypto.randomUUID();
+    const now = Date.now();
     
-    // Check if current question already has an answer
-    const currentQuestion = savedSession.questions[savedSession.current_index];
-    if (currentQuestion && savedSession.answers[currentQuestion.question_id]) {
-      setCurrentResult(savedSession.answers[currentQuestion.question_id]);
-    }
+    // FIX: Added limit=1000 to ensure we load enough history for fill logic
+    const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&limit=1000`, "question_id,total_attempts,correct_attempts,next_due_at,box_number");
     
-    setIsLoading(false);
-  };
+    const seenIds = new Set(states.map((s:any) => s.question_id));
+    const dueIds = states
+      .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() <= now)
+      .map((s:any) => s.question_id);
 
-const currentQuestion = session?.questions?.[session.current_index];
+    const WEAK_MIN = 3;
+    const WEAK_ACC = 0.4;
+    const weakIds = states
+      .filter((s:any) => (s.total_attempts || 0) >= WEAK_MIN && ((s.correct_attempts || 0) / Math.max(1, s.total_attempts || 0)) < WEAK_ACC)
+      .map((s:any) => s.question_id);
 
-    const handleAnswer = useCallback(async (choiceIndex: 0 | 1 | 2 | 3) => {
-    if (!session || !currentQuestion || isSubmitting) return;
+    const picked: string[] = [];
+    
+    if (mode === "due_only") {
+      picked.push(...pickSome(shuffle(dueIds), size));
+    } else if (mode === "weak_first") {
+      picked.push(...pickSome(shuffle(weakIds), size));
+      if (picked.length < size) picked.push(...pickSome(shuffle(dueIds.filter((id:any) => !picked.includes(id))), size - picked.length));
+    } else if (mode === "new_only") {
+      const need = size;
+      const notIn = Array.from(seenIds).join(",") || "00000000-0000-0000-0000-000000000000";
+      const newRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${need}`, "id");
+      picked.push(...newRows.map((r:any) => r.id));
+    } else if (mode === "bookmarks") {
+      const b = await sbSelect(env, "user_bookmark", `user_id=eq.${userId}&order=created_at.desc&limit=${size}`, "question_id");
+      picked.push(...b.map((x:any) => x.question_id));
+    } else if (mode === "review_free") {
+      const future = states
+        .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() > now)
+        .sort((a:any, b:any) => new Date(a.next_due_at).getTime() - new Date(b.next_due_at).getTime())
+        .map((s:any) => s.question_id);
+      picked.push(...pickSome(future, size));
+      if (picked.length < size) picked.push(...pickSome(shuffle(dueIds.filter((id:any) => !picked.includes(id))), size - picked.length));
+    } else {
+      // daily_mix
+      const dueBacklog = dueIds.length;
+      const newRatio = dueBacklog > 50 ? 0.05 : 0.15;
+      const weakRatio = 0.25;
+      const dueRatio = 1 - newRatio - weakRatio;
 
-    setIsSubmitting(true);
-    setSelectedIndex(choiceIndex);
+      const dueNeed = Math.max(0, Math.round(size * dueRatio));
+      const weakNeed = Math.max(0, Math.round(size * weakRatio));
+      const newNeed = Math.max(0, size - dueNeed - weakNeed);
 
+      picked.push(...pickSome(shuffle(dueIds), dueNeed));
+      picked.push(...pickSome(shuffle(weakIds.filter((id:any) => !picked.includes(id))), weakNeed));
+
+      const seenList = Array.from(seenIds);
+      const notIn = seenList.length ? seenList.join(",") : "00000000-0000-0000-0000-000000000000";
+      const newRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${newNeed}`, "id");
+      picked.push(...newRows.map((r:any) => r.id));
+
+      if (picked.length < size) {
+        const future = states
+          .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() > now)
+          .sort((a:any, b:any) => new Date(a.next_due_at).getTime() - new Date(b.next_due_at).getTime())
+          .map((s:any) => s.question_id)
+          .filter((id:any) => !picked.includes(id));
+        picked.push(...pickSome(future, size - picked.length));
+      }
+    }
+
+    if (!picked.length) return json({ attempt_id: sessionId, questions: [] }, 200, origin);
+
+    const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})`, "id,stem:stem_text,options:choices_json");
+    
+    const qMap = new Map(qRows.map((q:any) => [q.id, q]));
+    const questions = picked
+      .map(id => qMap.get(id))
+      .filter(Boolean)
+      .map((q:any) => ({
+        // FIX: Changed 'id' to 'question_id' to match frontend expectation
+        question_id: q.id,
+        stem: q.stem,
+        choices: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+      }));
+
+    // FIX: Changed 'session_id' to 'attempt_id' to match frontend expectation
+    return json({ attempt_id: sessionId, mode, size: questions.length, questions }, 200, origin);
+  }
+
+  // POST /answers/submit
+  if (pathname === "/api/app/v1/answers/submit" && request.method === "POST") {
     try {
-      const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
+      const body: any = await safeJson(request);
+      const { attempt_id, question_id, chosen_index, is_dont_know } = body;
 
-      const response = await api.answers.submit({
-        attempt_id: attemptId,
-        question_id: currentQuestion.question_id,
-        chosen_index: choiceIndex,
-      });
+      // FIX: Idempotency check - if attempt already exists, return previous result
+      // This prevents 500 errors on double-clicks or retries
+      const existing = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&attempt_id=eq.${attempt_id}`, "was_correct,ef_after,interval_after");
+      
+      const q = await sbSelectOne(env, "questions", `id=eq.${question_id}`, "id,subtopic_id,correct_choice_index,explanation_text");
+      if (!q) return json({ code: "QUESTION_NOT_FOUND" }, 200, origin); // Or handle stale session logic
 
-      if (isSubmitError(response)) {
-        if (response.code === 'QUESTION_NOT_FOUND') {
-          await handleStaleQuestion();
-        } else if (response.code === 'USER_DISABLED') {
-          haptic.error();
-          navigate('/');
-        }
-        return;
+      if (existing) {
+         return json({ 
+          was_correct: existing.was_correct, 
+          correct_choice_index: q.correct_choice_index, 
+          explanation_text: q.explanation_text,
+          sm2: { ef: existing.ef_after, interval: existing.interval_after }
+        }, 200, origin);
       }
 
-      // Success
-      if (response.was_correct) haptic.success();
-      else haptic.error();
+      const correctIndex = q.correct_choice_index;
+      const wasCorrect = !is_dont_know && Number(chosen_index) === Number(correctIndex);
 
-      setCurrentResult(response);
+      let state = await sbSelectOne(env, "user_question_state", `user_id=eq.${userId}&question_id=eq.${question_id}`, "*");
+      
+      let ef = state?.ef ?? 2.5;
+      let interval = state?.interval_days ?? 0;
+      let box = state?.box_number ?? 1;
+      let totalAttempts = (state?.total_attempts ?? 0);
+      let correctAttempts = (state?.correct_attempts ?? 0);
 
-      // Save answer to session
-      const updatedAnswers = { ...session.answers, [currentQuestion.question_id]: response };
-      sessionStorage.update({ answers: updatedAnswers });
-      setSession(prev => (prev ? { ...prev, answers: updatedAnswers } : null));
-    } catch (error) {
-      console.error('Failed to submit answer:', error);
-      haptic.error();
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [session, currentQuestion, isSubmitting, navigate]);
+      const quality = is_dont_know ? 1 : (wasCorrect ? 5 : 2);
+      ef = clampEF(ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
 
-
-    const handleDontKnow = useCallback(async () => {
-    if (!session || !currentQuestion || isSubmitting) return;
-
-    setIsSubmitting(true);
-
-    try {
-      const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
-
-      const response = await api.answers.submit({
-        attempt_id: attemptId,
-        question_id: currentQuestion.question_id,
-        is_dont_know: true,
-      });
-
-      if (isSubmitError(response)) {
-        if (response.code === 'QUESTION_NOT_FOUND') {
-          await handleStaleQuestion();
-        }
-        return;
+      // FIX: Correct Box Logic according to PDR
+      if (is_dont_know) {
+          box = 1; // Strong penalty for Dont Know
+      } else if (wasCorrect) {
+          if (totalAttempts === 0) interval = 1;
+          else if (totalAttempts === 1) interval = 6;
+          else interval = Math.round(Math.max(1, interval) * ef);
+          
+          box = Math.min(6, box + 1);
+      } else {
+          // Wrong answer
+          interval = 1;
+          box = Math.max(1, box - 1); // Drop by 1 (PDR default) instead of 2
       }
 
-      haptic.warning();
-      setCurrentResult(response);
+      totalAttempts += 1;
+      if(wasCorrect) correctAttempts += 1;
 
-      // Save answer
-      const updatedAnswers = { ...session.answers, [currentQuestion.question_id]: response };
-      sessionStorage.update({ answers: updatedAnswers });
-      setSession(prev => (prev ? { ...prev, answers: updatedAnswers } : null));
-    } catch (error) {
-      console.error('Failed to submit dont know:', error);
-      haptic.error();
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [session, currentQuestion, isSubmitting]);
+      const patch = {
+        user_id: userId,
+        question_id,
+        subtopic_id: q.subtopic_id,
+        ef, interval_days: interval, box_number: box,
+        next_due_at: addDaysISO(interval),
+        total_attempts: totalAttempts,
+        correct_attempts: correctAttempts,
+        last_review_at: new Date().toISOString()
+      };
 
+      if (!state) await sbInsert(env, "user_question_state", patch);
+      else await sbPatch(env, "user_question_state", `id=eq.${state.id}`, patch);
 
-  const handleStaleQuestion = async () => {
-    if (!session || !currentQuestion) return;
-
-    // Remove the stale question
-    sessionStorage.removeQuestion(currentQuestion.question_id);
-    const newStaleCount = sessionStorage.incrementStaleCount();
-
-    if (newStaleCount > MAX_STALE_SKIPS) {
-      // Too many stale questions, invalidate session
-      sessionStorage.clear();
-      setStaleError(true);
-      return;
-    }
-
-    // Reload session and continue
-    loadSession();
-  };
-
-  const handleNext = () => {
-    if (!session) return;
-    
-    haptic.light();
-
-    const nextIndex = session.current_index + 1;
-    
-    if (nextIndex >= session.question_ids.length) {
-      // Session complete
-      navigate('/summary');
-      return;
-    }
-
-    // Move to next question
-    sessionStorage.update({ current_index: nextIndex });
-    setSession(prev => prev ? { ...prev, current_index: nextIndex } : null);
-    setCurrentResult(undefined);
-    setSelectedIndex(undefined);
-  };
-
-  const handleBookmarkToggle = async () => {
-    if (!currentQuestion) return;
-    
-    try {
-      const response = await api.bookmarks.toggle({ question_id: currentQuestion.question_id });
-      
-      setBookmarkedQuestions(prev => {
-        const next = new Set(prev);
-        if (response.is_bookmarked) {
-          next.add(currentQuestion.question_id);
-        } else {
-          next.delete(currentQuestion.question_id);
-        }
-        return next;
+      await sbInsert(env, "user_question_attempt", {
+        user_id: userId, question_id, subtopic_id: q.subtopic_id, attempt_id,
+        chosen_index, was_correct: wasCorrect, quality, ef_after: ef, interval_after: interval
       });
-      
-      haptic.success();
-    } catch (error) {
-      console.error('Failed to toggle bookmark:', error);
+
+      await touchUser(env, userId, wasCorrect);
+
+      return json({ 
+        was_correct: wasCorrect, 
+        correct_choice_index: correctIndex, 
+        explanation_text: q.explanation_text,
+        sm2: { ef, interval, next_due: patch.next_due_at }
+      }, 200, origin);
+
+    } catch (e: any) {
+      console.error("Submit Error:", e);
+      // Handle race condition/unique constraint if check failed
+      if (e.message && e.message.includes("unique")) {
+         return json({ error: "ALREADY_PROCESSED" }, 200, origin);
+      }
+      return json({ error: "INTERNAL_ERROR" }, 500, origin);
     }
-  };
-
-  const handleReport = async (type: ReportType, message?: string) => {
-    if (!currentQuestion) return;
-    
-    setIsReporting(true);
-    try {
-      await api.reports.create({
-        question_id: currentQuestion.question_id,
-        report_type: type,
-        message,
-      });
-      haptic.success();
-    } catch (error) {
-      console.error('Failed to submit report:', error);
-      haptic.error();
-    } finally {
-      setIsReporting(false);
-    }
-  };
-
-  if (isLoading) {
-    return <FullPageLoading />;
   }
 
-  if (staleError) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4">
-        <div className="text-center max-w-sm">
-          <h2 className="text-lg font-semibold mb-2">جلسه منقضی شد</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            برخی سوالات این جلسه دیگر در دسترس نیستند. لطفاً جلسه جدیدی شروع کنید.
-          </p>
-          <Button onClick={() => navigate('/')} className="gradient-primary text-primary-foreground">
-            بازگشت
-          </Button>
-        </div>
-      </div>
-    );
+  // Bookmarks & Reports
+  if (pathname === "/api/app/v1/bookmarks/toggle") {
+     const body: any = await safeJson(request);
+     const { question_id, subtopic_id } = body;
+     const exists = await sbSelectOne(env, "user_bookmark", `user_id=eq.${userId}&question_id=eq.${question_id}`, "question_id");
+     if(exists) {
+        await sbDelete(env, "user_bookmark", `user_id=eq.${userId}&question_id=eq.${question_id}`);
+        return json({ is_bookmarked: false }, 200, origin);
+     } else {
+        await sbInsert(env, "user_bookmark", { user_id: userId, question_id, subtopic_id });
+        return json({ is_bookmarked: true }, 200, origin);
+     }
   }
 
-  if (!session || !currentQuestion) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="text-center">
-          <p className="text-muted-foreground">جلسه یافت نشد</p>
-          <Button onClick={() => navigate('/')} variant="link" className="mt-2">
-            بازگشت
-          </Button>
-        </div>
-      </div>
-    );
+  if (pathname === "/api/app/v1/bookmarks/list" && request.method === "GET") {
+     const url = new URL(request.url);
+     const page = clampInt(url.searchParams.get("page") ?? 1, 1, 9999);
+     const pageSize = clampInt(url.searchParams.get("page_size") ?? 20, 1, 50);
+     const from = (page - 1) * pageSize;
+     
+     const bRows = await sbSelect(env, "user_bookmark", `user_id=eq.${userId}&order=created_at.desc&limit=${pageSize}&offset=${from}`, "question_id,created_at");
+     
+     if (!bRows.length) return json({ page, page_size: pageSize, total: 0, items: [] }, 200, origin);
+
+     const ids = bRows.map((r:any) => r.question_id);
+     const qRows = await sbSelect(env, "questions", `id=in.(${ids.join(",")})`, "id,stem:stem_text");
+     const qMap = new Map(qRows.map((q:any) => [q.id, q]));
+     const items = bRows.map((b:any) => ({
+        question_id: b.question_id,
+        stem_preview: (qMap.get(b.question_id)?.stem ?? "").slice(0, 140),
+        bookmarked_at: b.created_at,
+     }));
+     const total = await sbCount(env, "user_bookmark", `user_id=eq.${userId}`);
+     return json({ page, page_size: pageSize, total, items }, 200, origin);
   }
 
-  return (
-    <div className="min-h-screen flex flex-col safe-top safe-bottom">
-      <main className="flex-1 flex flex-col p-4 max-w-lg mx-auto w-full">
-        <QuestionCard
-          question={currentQuestion}
-          questionNumber={session.current_index + 1}
-          totalQuestions={session.question_ids.length}
-          isBookmarked={bookmarkedQuestions.has(currentQuestion.question_id)}
-          onAnswer={handleAnswer}
-          onDontKnow={handleDontKnow}
-          onBookmarkToggle={handleBookmarkToggle}
-          onReport={() => setShowReportModal(true)}
-          result={currentResult}
-          selectedIndex={selectedIndex}
-          isSubmitting={isSubmitting}
-        />
+  if (pathname === "/api/app/v1/reports/create") {
+    const body: any = await safeJson(request);
+    const { question_id, subtopic_id, issue_type, message } = body;
+    await sbInsert(env, "question_report", { 
+      user_id: userId, 
+      question_id, 
+      report_type: issue_type,
+      message 
+    });
+    return json({ ok: true }, 200, origin);
+  }
 
-        {/* Next button */}
-        {currentResult && (
-          <div className="mt-4 animate-slide-up">
-            <Button
-              onClick={handleNext}
-              className="w-full h-12 gradient-primary text-primary-foreground tap-highlight"
-            >
-              {session.current_index + 1 >= session.question_ids.length ? 'پایان' : 'بعدی'}
-            </Button>
-          </div>
-        )}
-      </main>
-
-      <ReportModal
-        isOpen={showReportModal}
-        onClose={() => setShowReportModal(false)}
-        onSubmit={handleReport}
-        isSubmitting={isReporting}
-      />
-    </div>
-  );
+  return json({ error: "Not found" }, 404, origin);
 }
