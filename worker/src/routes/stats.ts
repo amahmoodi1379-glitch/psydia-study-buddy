@@ -15,7 +15,8 @@ export async function handleStats(request: Request, env: Env, pathname: string, 
      start.setUTCDate(start.getUTCDate() - (days - 1));
      start.setUTCHours(0,0,0,0);
 
-     const rows = await sbSelect(env, "user_question_attempts", `user_id=eq.${userId}&created_at=gte.${start.toISOString()}&order=created_at.asc`, "created_at");
+     // FIX: Table name user_question_attempts -> user_question_attempt
+     const rows = await sbSelect(env, "user_question_attempt", `user_id=eq.${userId}&created_at=gte.${start.toISOString()}&order=created_at.asc`, "created_at");
      
      const map = new Map();
      for(const r of rows) {
@@ -44,7 +45,8 @@ export async function handleStats(request: Request, env: Env, pathname: string, 
     start.setUTCDate(start.getUTCDate() - (days - 1));
     start.setUTCHours(0,0,0,0);
     
-    const rows = await sbSelect(env, "user_question_attempts", `user_id=eq.${userId}&created_at=gte.${start.toISOString()}&order=created_at.asc`, "created_at");
+    // FIX: Table name user_question_attempts -> user_question_attempt
+    const rows = await sbSelect(env, "user_question_attempt", `user_id=eq.${userId}&created_at=gte.${start.toISOString()}&order=created_at.asc`, "created_at");
     
     const map = new Map();
     for(const r of rows) { const d = (r.created_at || "").slice(0,10); map.set(d, (map.get(d)||0)+1); }
@@ -110,7 +112,6 @@ export async function handleStats(request: Request, env: Env, pathname: string, 
 
       const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=in.(${subIds.join(",")})`, "total_attempts,correct_attempts,box_number,next_due_at");
       
-      // ... logic similar to subtopic stats, repeating for subject aggregate ...
       const answered = states.reduce((a:number, s:any) => a + (s.total_attempts || 0), 0);
       const correct = states.reduce((a:number, s:any) => a + (s.correct_attempts || 0), 0);
       const accuracy = answered > 0 ? Math.round((correct / answered) * 100) : null;
@@ -121,9 +122,9 @@ export async function handleStats(request: Request, env: Env, pathname: string, 
       const mastered = states.filter((s:any) => (s.box_number || 1) >= 4 && (s.total_attempts || 0) >= 3).length;
       const almost = states.filter((s:any) => (s.box_number || 1) >= 2 && (s.box_number || 1) <= 3 && (s.total_attempts || 0) >= 2).length;
 
-      // activity 7d for subject
+      // FIX: Table name user_question_attempts -> user_question_attempt
       const start = new Date(); start.setUTCDate(start.getUTCDate() - 6);
-      const atts = await sbSelect(env, "user_question_attempts", `user_id=eq.${userId}&created_at=gte.${start.toISOString()}`, "created_at");
+      const atts = await sbSelect(env, "user_question_attempt", `user_id=eq.${userId}&created_at=gte.${start.toISOString()}`, "created_at");
       const map = new Map();
       for(const r of atts) { const d = (r.created_at||"").slice(0,10); map.set(d, (map.get(d)||0)+1); }
       const act7d = [];
