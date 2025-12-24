@@ -2,7 +2,7 @@ import { Env, sbSelectOne, sbInsert, sbPatch, getOrCreateUser, mapUser } from ".
 import { json, safeJson, nowSec } from "../lib/utils";
 import { verifyTelegramInitData, signJwt, requireAuth } from "../lib/auth";
 
-const USER_SELECT_FIELDS = "id,telegram_id,display_name,avatar_id,theme,streak_current,streak_best,total_questions_answered,is_disabled,last_active_at";
+const USER_SELECT_FIELDS = "id,telegram_id,display_name,avatar_id,theme,streak_current,streak_best,total_questions_answered,is_disabled,last_active_at,created_at";
 const VALID_THEMES = new Set(["light", "dark"]);
 const AVATAR_MIN_ID = 0;
 const AVATAR_MAX_ID = 29;

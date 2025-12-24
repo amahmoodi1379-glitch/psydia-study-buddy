@@ -83,7 +83,7 @@ export async function getOrCreateUser(env: Env, tgUser: any) {
     env,
     "users",
     `telegram_id=eq.${telegramId}&limit=1`,
-    "id,telegram_id,display_name,avatar_id,theme,streak_current,streak_best,total_questions_answered,is_disabled,last_active_at"
+    "id,telegram_id,display_name,avatar_id,theme,streak_current,streak_best,total_questions_answered,is_disabled,last_active_at,created_at"
   );
 
   const now = new Date().toISOString();
@@ -100,7 +100,7 @@ export async function getOrCreateUser(env: Env, tgUser: any) {
   const inserted: any = await sbInsert(env, "users", {
     telegram_id: telegramId,
     display_name: displayName,
-    avatar_id: "cat",
+    avatar_id: 0,
     theme: "dark",
     streak_current: 0,
     streak_best: 0,
@@ -113,15 +113,17 @@ export async function getOrCreateUser(env: Env, tgUser: any) {
 }
 
 export function mapUser(u: any) {
+  const avatarId = Number.parseInt(u.avatar_id, 10);
   return {
     id: u.id,
     telegram_id: u.telegram_id,
     display_name: u.display_name,
-    avatar_id: u.avatar_id,
+    avatar_id: Number.isNaN(avatarId) ? 0 : avatarId,
     theme: u.theme,
     streak_current: u.streak_current ?? 0,
     streak_best: u.streak_best ?? 0,
     total_answered: u.total_questions_answered ?? 0,
+    created_at: u.created_at,
   };
 }
 
