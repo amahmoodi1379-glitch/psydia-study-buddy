@@ -48,7 +48,6 @@ export async function handleSession(request: Request, env: Env, pathname: string
       const newRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${need}`, "id");
       picked.push(...newRows.map((r:any) => r.id));
     } else if (mode === "bookmarks") {
-      // FIX: Table name user_bookmarks -> user_bookmark
       const b = await sbSelect(env, "user_bookmark", `user_id=eq.${userId}&order=created_at.desc&limit=${size}`, "question_id");
       picked.push(...b.map((x:any) => x.question_id));
     } else if (mode === "review_free") {
@@ -89,7 +88,6 @@ export async function handleSession(request: Request, env: Env, pathname: string
 
     if (!picked.length) return json({ session_id: sessionId, questions: [] }, 200, origin);
 
-    // FIX: Column mapping (stem->stem_text, options->choices_json)
     const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})`, "id,stem:stem_text,options:choices_json");
     
     const qMap = new Map(qRows.map((q:any) => [q.id, q]));
@@ -110,8 +108,8 @@ export async function handleSession(request: Request, env: Env, pathname: string
     const body: any = await safeJson(request);
     const { attempt_id, question_id, chosen_index, is_dont_know } = body;
 
-    // FIX: explanation -> explanation_text
-    const q = await sbSelectOne(env, "questions", `id=eq.${question_id}`, "id,subtopic_id,correct_choice_index,explanation:explanation_text");
+    // FIX: Select explanation_text directly
+    const q = await sbSelectOne(env, "questions", `id=eq.${question_id}`, "id,subtopic_id,correct_choice_index,explanation_text");
     if (!q) return json({ code: "QUESTION_NOT_FOUND" }, 200, origin);
 
     const correctIndex = q.correct_choice_index;
@@ -119,7 +117,6 @@ export async function handleSession(request: Request, env: Env, pathname: string
 
     let state = await sbSelectOne(env, "user_question_state", `user_id=eq.${userId}&question_id=eq.${question_id}`, "*");
     
-    // SM-2 Defaults
     let ef = state?.ef ?? 2.5;
     let interval = state?.interval_days ?? 0;
     let box = state?.box_number ?? 1;
@@ -157,7 +154,6 @@ export async function handleSession(request: Request, env: Env, pathname: string
     if (!state) await sbInsert(env, "user_question_state", patch);
     else await sbPatch(env, "user_question_state", `id=eq.${state.id}`, patch);
 
-    // FIX: Table name user_question_attempts -> user_question_attempt
     await sbInsert(env, "user_question_attempt", {
       user_id: userId, question_id, subtopic_id: q.subtopic_id, attempt_id,
       chosen_index, was_correct: wasCorrect, quality, ef_after: ef, interval_after: interval
@@ -168,7 +164,8 @@ export async function handleSession(request: Request, env: Env, pathname: string
     return json({ 
       was_correct: wasCorrect, 
       correct_choice_index: correctIndex, 
-      explanation: q.explanation,
+      // FIX: Return as explanation_text to match frontend expectation
+      explanation_text: q.explanation_text,
       sm2: { ef, interval, next_due: patch.next_due_at }
     }, 200, origin);
   }
@@ -177,7 +174,6 @@ export async function handleSession(request: Request, env: Env, pathname: string
   if (pathname === "/api/app/v1/bookmarks/toggle") {
      const body: any = await safeJson(request);
      const { question_id, subtopic_id } = body;
-     // FIX: Table name user_bookmarks -> user_bookmark
      const exists = await sbSelectOne(env, "user_bookmark", `user_id=eq.${userId}&question_id=eq.${question_id}`, "question_id");
      if(exists) {
         await sbDelete(env, "user_bookmark", `user_id=eq.${userId}&question_id=eq.${question_id}`);
@@ -194,13 +190,11 @@ export async function handleSession(request: Request, env: Env, pathname: string
      const pageSize = clampInt(url.searchParams.get("page_size") ?? 20, 1, 50);
      const from = (page - 1) * pageSize;
      
-     // FIX: Table name user_bookmarks -> user_bookmark
      const bRows = await sbSelect(env, "user_bookmark", `user_id=eq.${userId}&order=created_at.desc&limit=${pageSize}&offset=${from}`, "question_id,created_at");
      
      if (!bRows.length) return json({ page, page_size: pageSize, total: 0, items: [] }, 200, origin);
 
      const ids = bRows.map((r:any) => r.question_id);
-     // FIX: Column mapping stem -> stem_text
      const qRows = await sbSelect(env, "questions", `id=in.(${ids.join(",")})`, "id,stem:stem_text");
      const qMap = new Map(qRows.map((q:any) => [q.id, q]));
      const items = bRows.map((b:any) => ({
@@ -214,12 +208,11 @@ export async function handleSession(request: Request, env: Env, pathname: string
 
   if (pathname === "/api/app/v1/reports/create") {
     const body: any = await safeJson(request);
-    // FIX: Table name user_reports -> question_report AND issue_type -> report_type
     const { question_id, subtopic_id, issue_type, message } = body;
     await sbInsert(env, "question_report", { 
       user_id: userId, 
       question_id, 
-      report_type: issue_type, // map frontend 'issue_type' to DB 'report_type'
+      report_type: issue_type,
       message 
     });
     return json({ ok: true }, 200, origin);
