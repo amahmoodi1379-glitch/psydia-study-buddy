@@ -8,10 +8,6 @@ import { handleStats } from "./routes/stats";
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const origin = request.headers.get("Origin") || "*";
-
-    const requestOrigin = request.headers.get("Origin") || "";
-    // اگر آدرس درخواست‌کننده در لیست بود، اجازه بده، وگرنه رد کن
-    const origin = ALLOWED_ORIGINS.includes(requestOrigin) ? requestOrigin : "null";
     
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
