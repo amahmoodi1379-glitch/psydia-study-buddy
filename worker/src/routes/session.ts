@@ -223,15 +223,27 @@ export async function handleSession(request: Request, env: Env, pathname: string
      if (!bRows.length) return json({ page, page_size: pageSize, total: 0, items: [] }, 200, origin);
 
      const ids = bRows.map((r:any) => r.question_id);
-     const qRows = await sbSelect(env, "questions", `id=in.(${ids.join(",")})`, "id,stem:stem_text");
+     const qRows = await sbSelect(env, "questions", `id=in.(${ids.join(",")})`, "id,stem_text,subtopic_id");
      const qMap = new Map(qRows.map((q:any) => [q.id, q]));
-     const items = bRows.map((b:any) => ({
-        question_id: b.question_id,
-        stem_preview: (qMap.get(b.question_id)?.stem ?? "").slice(0, 140),
-        bookmarked_at: b.created_at,
-     }));
+     const subtopicIds = Array.from(new Set(qRows.map((q:any) => q.subtopic_id)));
+     const subtopicRows = subtopicIds.length
+        ? await sbSelect(env, "subtopics", `id=in.(${subtopicIds.join(",")})`, "id,title_fa")
+        : [];
+     const subtopicMap = new Map(subtopicRows.map((s:any) => [s.id, s]));
+     const items = bRows.map((b:any) => {
+        const question = qMap.get(b.question_id);
+        const subtopic = question ? subtopicMap.get(question.subtopic_id) : null;
+        return {
+          question_id: b.question_id,
+          stem_text: question?.stem_text ?? "",
+          subtopic_name: subtopic?.title_fa ?? "",
+          created_at: b.created_at,
+        };
+     });
      const total = await sbCount(env, "user_bookmark", `user_id=eq.${userId}`);
-     return json({ page, page_size: pageSize, total, items }, 200, origin);
+     const hasMore = from + pageSize < total;
+     const nextPage = hasMore ? page + 1 : null;
+     return json({ page, page_size: pageSize, total, has_more: hasMore, next_page: nextPage, items }, 200, origin);
   }
 
   if (pathname === "/api/app/v1/reports/create") {
