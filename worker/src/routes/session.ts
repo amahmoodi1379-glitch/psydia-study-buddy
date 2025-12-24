@@ -111,15 +111,23 @@ export async function handleSession(request: Request, env: Env, pathname: string
     const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})&is_active=eq.true`, "id,stem_text,options:choices_json");
     
     const qMap = new Map(qRows.map((q:any) => [q.id, q]));
+    const stateMap = new Map(states.map((state: any) => [state.question_id, state]));
     const questions = picked
       .map(id => qMap.get(id))
       .filter(Boolean)
-      .map((q:any) => ({
+      .map((q:any) => {
+        const state = stateMap.get(q.id);
+        const isReviewAhead = state?.next_due_at
+          ? new Date(state.next_due_at).getTime() > now
+          : false;
+        return {
         // FIX: Changed 'id' to 'question_id' to match frontend expectation
         question_id: q.id,
         stem_text: q.stem_text,
         choices: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
-      }));
+        is_review_ahead: isReviewAhead,
+      };
+    });
 
     // FIX: Changed 'session_id' to 'attempt_id' to match frontend expectation
     return json({ attempt_id: sessionId, mode, size: questions.length, questions }, 200, origin);

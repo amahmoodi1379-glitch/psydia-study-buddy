@@ -105,21 +105,25 @@ const sampleQuestions: SessionQuestion[] = [
     question_id: 'q_1',
     stem_text: 'کدام یک از نظریه‌پردازان زیر، هوش را به صورت عامل عمومی (g) تعریف کرده است؟',
     choices: ['گاردنر', 'اسپیرمن', 'استرنبرگ', 'گیلفورد'],
+    is_review_ahead: false,
   },
   {
     question_id: 'q_2',
     stem_text: 'در نظریه هوش چندگانه گاردنر، توانایی درک و تحلیل احساسات دیگران مربوط به کدام نوع هوش است؟',
     choices: ['هوش درون‌فردی', 'هوش بین‌فردی', 'هوش زبانی', 'هوش موسیقیایی'],
+    is_review_ahead: false,
   },
   {
     question_id: 'q_3',
     stem_text: 'آزمون هوش وکسلر بزرگسالان (WAIS) شامل چند خرده‌آزمون است؟',
     choices: ['۱۰ خرده‌آزمون', '۱۵ خرده‌آزمون', '۱۱ خرده‌آزمون', '۱۲ خرده‌آزمون'],
+    is_review_ahead: false,
   },
   {
     question_id: 'q_4',
     stem_text: 'مفهوم "سن عقلی" اولین بار توسط چه کسی مطرح شد؟',
     choices: ['ترمن', 'بینه', 'وکسلر', 'کتل'],
+    is_review_ahead: false,
   },
   {
     question_id: 'q_5',
@@ -130,6 +134,7 @@ const sampleQuestions: SessionQuestion[] = [
       'به دانش انباشته شده بستگی دارد',
       'در طول زندگی ثابت می‌ماند',
     ],
+    is_review_ahead: false,
   },
 ];
 
@@ -141,6 +146,7 @@ const generateQuestions = (count: number): SessionQuestion[] => {
     questions.push({
       ...base,
       question_id: `q_${randomId()}`,
+      is_review_ahead: Math.random() > 0.6,
     });
   }
   return questions;

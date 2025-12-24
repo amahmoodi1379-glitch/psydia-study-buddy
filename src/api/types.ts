@@ -84,6 +84,7 @@ export interface SessionQuestion {
   question_id: string;
   stem_text: string;
   choices: [string, string, string, string];
+  is_review_ahead: boolean;
 }
 
 export interface CreateSessionResponse {
