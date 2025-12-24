@@ -3,6 +3,8 @@ import { Env, sbSelect, sbSelectOne, sbInsert, sbPatch, sbDelete, sbCount, touch
 import { json, safeJson, clampInt, shuffle, pickSome, addDaysISO, clampEF } from "../lib/utils";
 import { requireAuth } from "../lib/auth";
 
+const allowedReportTypes = new Set(["wrong_key", "typo", "ambiguous", "other"]);
+
 export async function handleSession(request: Request, env: Env, pathname: string, origin: string) {
   const auth = await requireAuth(request, env);
   if (!auth.ok) return json({ error: auth.error }, 401, origin);
@@ -265,14 +267,25 @@ export async function handleSession(request: Request, env: Env, pathname: string
 
   if (pathname === "/api/app/v1/reports/create") {
     const body: any = await safeJson(request);
-    const { question_id, subtopic_id, issue_type, message } = body;
-    await sbInsert(env, "question_report", { 
+    const { question_id, report_type, message } = body || {};
+    if (!question_id) {
+      return json({ error: "Invalid request: missing question_id" }, 400, origin);
+    }
+    if (!allowedReportTypes.has(report_type)) {
+      return json({ error: "Invalid request: invalid report_type" }, 400, origin);
+    }
+    const inserted = await sbInsert(env, "question_report", { 
       user_id: userId, 
       question_id, 
-      report_type: issue_type,
+      report_type,
       message 
     });
-    return json({ ok: true }, 200, origin);
+    const reportRow = Array.isArray(inserted) ? inserted[0] : inserted;
+    if (!reportRow?.id) {
+      console.error("Failed to create report: sbInsert did not return a valid row with an ID.", { inserted });
+      return json({ error: "Internal server error" }, 500, origin);
+    }
+    return json({ report_id: reportRow.id }, 200, origin);
   }
 
   return json({ error: "Not found" }, 404, origin);
