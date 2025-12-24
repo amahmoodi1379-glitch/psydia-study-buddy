@@ -7,6 +7,8 @@ import { api } from '@/api/client';
 import { cn } from '@/lib/utils';
 import type { SubjectStats as SubjectStatsType, Subject } from '@/api/types';
 
+const WEEKDAY_ABBREVIATIONS = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
+
 export default function SubjectStats() {
   const { subjectId } = useParams<{ subjectId: string }>();
   const [isLoading, setIsLoading] = useState(true);
@@ -60,6 +62,8 @@ export default function SubjectStats() {
   const progress = stats.total_questions > 0 
     ? Math.round((stats.total_answered / stats.total_questions) * 100) 
     : 0;
+
+  const activityMaxCount = Math.max(...stats.activity_7d.map(day => day.count), 1);
 
   return (
     <div className="min-h-screen pb-20">
@@ -130,8 +134,7 @@ export default function SubjectStats() {
           <h3 className="text-sm font-medium mb-3">فعالیت ۷ روز اخیر</h3>
           <div className="flex items-end justify-between gap-1 h-16">
             {stats.activity_7d.map((day, index) => {
-              const maxCount = Math.max(...stats.activity_7d.map(d => d.count), 1);
-              const height = (day.count / maxCount) * 100;
+              const height = (day.count / activityMaxCount) * 100;
               return (
                 <div key={day.date} className="flex-1 flex flex-col items-center">
                   <div 
@@ -142,7 +145,7 @@ export default function SubjectStats() {
                     style={{ height: `${Math.max(height, 8)}%` }}
                   />
                   <span className="text-[10px] text-muted-foreground mt-1">
-                    {['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'][index % 7]}
+                    {WEEKDAY_ABBREVIATIONS[index % WEEKDAY_ABBREVIATIONS.length]}
                   </span>
                 </div>
               );

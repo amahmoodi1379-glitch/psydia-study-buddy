@@ -44,6 +44,7 @@ const USE_MOCK = !BASE_URL;
 
 // Token storage
 const TOKEN_KEY = 'psydia_auth_token';
+let subjectsCache: Subject[] | null = null;
 
 export const getToken = (): string | null => {
   return localStorage.getItem(TOKEN_KEY);
@@ -123,11 +124,16 @@ export const api = {
   // Navigation
   subjects: {
     list: async (): Promise<Subject[]> => {
+      if (subjectsCache) {
+        return subjectsCache;
+      }
       if (USE_MOCK) {
         await new Promise(r => setTimeout(r, 200));
-        return mockSubjects;
+        subjectsCache = mockSubjects;
+        return subjectsCache;
       }
-      return fetchJson<Subject[]>('/api/app/v1/subjects');
+      subjectsCache = await fetchJson<Subject[]>('/api/app/v1/subjects');
+      return subjectsCache;
     },
   },
 
