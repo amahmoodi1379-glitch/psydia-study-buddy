@@ -9,6 +9,7 @@ type Status = "checking" | "ok" | "needs_telegram" | "error";
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>("checking");
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [retryCount, setRetryCount] = useState(0);
 
   const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -39,9 +40,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       try {
         await api.auth.telegram(initData);
         if (!shouldCancel()) setStatus("ok");
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!shouldCancel()) {
-          setErrorMsg(e?.message || "Auth failed");
+          setErrorMsg(e instanceof Error ? e.message : "Auth failed");
           setStatus("error");
         }
       }
@@ -56,12 +57,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return () => {
       signal.cancelled = true;
     };
-  }, [runAuth]);
+  }, [runAuth, retryCount]);
 
   const handleRetry = () => {
     setErrorMsg("");
     setStatus("checking");
-    runAuth();
+    setRetryCount((count) => count + 1);
   };
 
   if (status === "checking") return <FullPageLoading />;
