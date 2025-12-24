@@ -208,13 +208,13 @@ export async function handleSession(request: Request, env: Env, pathname: string
   // Bookmarks & Reports
   if (pathname === "/api/app/v1/bookmarks/toggle") {
      const body: any = await safeJson(request);
-     const { question_id, subtopic_id } = body;
+     const { question_id } = body;
      const exists = await sbSelectOne(env, "user_bookmark", `user_id=eq.${userId}&question_id=eq.${question_id}`, "question_id");
      if(exists) {
         await sbDelete(env, "user_bookmark", `user_id=eq.${userId}&question_id=eq.${question_id}`);
         return json({ is_bookmarked: false }, 200, origin);
      } else {
-        await sbInsert(env, "user_bookmark", { user_id: userId, question_id, subtopic_id });
+        await sbInsert(env, "user_bookmark", { user_id: userId, question_id });
         return json({ is_bookmarked: true }, 200, origin);
      }
   }
