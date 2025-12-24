@@ -34,18 +34,12 @@ export default function Player() {
       navigate('/');
       return;
     }
-    const normalizedSession = savedSession.question_attempt_ids
-      ? savedSession
-      : { ...savedSession, question_attempt_ids: {} };
-    if (normalizedSession !== savedSession) {
-      sessionStorage.set(normalizedSession);
-    }
-    setSession(normalizedSession);
+    setSession(savedSession);
     
     // Check if current question already has an answer
-    const currentQuestion = normalizedSession.questions[normalizedSession.current_index];
-    if (currentQuestion && normalizedSession.answers[currentQuestion.question_id]) {
-      setCurrentResult(normalizedSession.answers[currentQuestion.question_id]);
+    const currentQuestion = savedSession.questions[savedSession.current_index];
+    if (currentQuestion && savedSession.answers[currentQuestion.question_id]) {
+      setCurrentResult(savedSession.answers[currentQuestion.question_id]);
     }
     
     setIsLoading(false);
@@ -53,24 +47,19 @@ export default function Player() {
 
 const currentQuestion = session?.questions?.[session.current_index];
 
-  const submitAnswer = useCallback(async ({ chosenIndex, isDontKnow }: { chosenIndex?: 0 | 1 | 2 | 3; isDontKnow?: boolean }) => {
+    const handleAnswer = useCallback(async (choiceIndex: 0 | 1 | 2 | 3) => {
     if (!session || !currentQuestion || isSubmitting) return;
 
     setIsSubmitting(true);
-    if (chosenIndex !== undefined) {
-      setSelectedIndex(chosenIndex);
-    }
+    setSelectedIndex(choiceIndex);
 
     try {
-      const attemptResult = sessionStorage.ensureQuestionAttemptId(currentQuestion.question_id);
-      if (!attemptResult) return;
-      setSession(attemptResult.session);
+      const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
 
       const response = await api.answers.submit({
-        attempt_id: attemptResult.attemptId,
+        attempt_id: attemptId,
         question_id: currentQuestion.question_id,
-        chosen_index: chosenIndex,
-        is_dont_know: isDontKnow,
+        chosen_index: choiceIndex,
       });
 
       if (isSubmitError(response)) {
@@ -83,12 +72,13 @@ const currentQuestion = session?.questions?.[session.current_index];
         return;
       }
 
-      if (isDontKnow) haptic.warning();
-      else if (response.was_correct) haptic.success();
+      // Success
+      if (response.was_correct) haptic.success();
       else haptic.error();
 
       setCurrentResult(response);
 
+      // Save answer to session
       const updatedAnswers = { ...session.answers, [currentQuestion.question_id]: response };
       sessionStorage.update({ answers: updatedAnswers });
       setSession(prev => (prev ? { ...prev, answers: updatedAnswers } : null));
@@ -100,13 +90,42 @@ const currentQuestion = session?.questions?.[session.current_index];
     }
   }, [session, currentQuestion, isSubmitting, navigate]);
 
-  const handleAnswer = useCallback(async (choiceIndex: 0 | 1 | 2 | 3) => {
-    await submitAnswer({ chosenIndex: choiceIndex });
-  }, [submitAnswer]);
 
-  const handleDontKnow = useCallback(async () => {
-    await submitAnswer({ isDontKnow: true });
-  }, [submitAnswer]);
+    const handleDontKnow = useCallback(async () => {
+    if (!session || !currentQuestion || isSubmitting) return;
+
+    setIsSubmitting(true);
+
+    try {
+      const attemptId = `${session.attempt_id}:${currentQuestion.question_id}`;
+
+      const response = await api.answers.submit({
+        attempt_id: attemptId,
+        question_id: currentQuestion.question_id,
+        is_dont_know: true,
+      });
+
+      if (isSubmitError(response)) {
+        if (response.code === 'QUESTION_NOT_FOUND') {
+          await handleStaleQuestion();
+        }
+        return;
+      }
+
+      haptic.warning();
+      setCurrentResult(response);
+
+      // Save answer
+      const updatedAnswers = { ...session.answers, [currentQuestion.question_id]: response };
+      sessionStorage.update({ answers: updatedAnswers });
+      setSession(prev => (prev ? { ...prev, answers: updatedAnswers } : null));
+    } catch (error) {
+      console.error('Failed to submit dont know:', error);
+      haptic.error();
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [session, currentQuestion, isSubmitting]);
 
 
   const handleStaleQuestion = async () => {

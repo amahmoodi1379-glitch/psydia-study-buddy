@@ -67,7 +67,6 @@ export default function SubtopicHub() {
         questions: response.questions,
         current_index: 0,
         answers: {},
-        question_attempt_ids: {},
         stale_skip_count: 0,
         created_at: new Date().toISOString(),
       };
