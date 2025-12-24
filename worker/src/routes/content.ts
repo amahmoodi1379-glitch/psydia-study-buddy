@@ -2,6 +2,7 @@
 import { Env, sbSelect, sbCount, sbSelectOne } from "../lib/db";
 import { json, computeStatusLabel } from "../lib/utils";
 import { requireAuth } from "../lib/auth";
+import { buildLastThreeMap, classifyQuestionBucket, MIN_CLASSIFICATION_ATTEMPTS } from "../lib/buckets";
 
 export async function handleContent(request: Request, env: Env, pathname: string, searchParams: URLSearchParams, origin: string) {
   const auth = await requireAuth(request, env);
@@ -76,15 +77,40 @@ export async function handleContent(request: Request, env: Env, pathname: string
     const subject = topic ? await sbSelectOne(env, "subjects", `id=eq.${topic.subject_id}`, "id,title_fa") : null;
 
     const totalQuestions = await sbCount(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true`);
-    const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}`, "question_id,total_attempts,correct_attempts,next_due_at,box_number");
+    const states = await sbSelect(
+      env,
+      "user_question_state",
+      `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}`,
+      "question_id,total_attempts,correct_attempts,next_due_at,box_number,interval_days"
+    );
+    const attempts = await sbSelect(
+      env,
+      "user_question_attempt",
+      `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&order=created_at.desc`,
+      "question_id,was_correct,created_at"
+    );
+    const lastThreeByQuestion = buildLastThreeMap(attempts);
 
     const seenSet = new Set(states.map((x: any) => x.question_id));
     const dueCount = states.filter((x: any) => x.next_due_at && new Date(x.next_due_at).getTime() <= Date.now()).length;
     
-    const WEAK_MIN = 3; 
-    const WEAK_ACC = 0.4;
-    const SUFFICIENT_DATA_THRESHOLD = 6;
-    const weakCount = states.filter((x: any) => (x.total_attempts || 0) >= WEAK_MIN && ((x.correct_attempts || 0) / Math.max(1, x.total_attempts || 0)) < WEAK_ACC).length;
+    const SUFFICIENT_DATA_THRESHOLD = MIN_CLASSIFICATION_ATTEMPTS;
+    const weakCount = states.filter((state: any) => {
+      const totalAttempts = state.total_attempts ?? 0;
+      const correctAttempts = state.correct_attempts ?? 0;
+      const boxNumber = state.box_number ?? 1;
+      const intervalDays = state.interval_days ?? 0;
+      const lastThree = lastThreeByQuestion.get(state.question_id) ?? [];
+      return (
+        classifyQuestionBucket({
+          totalAttempts,
+          correctAttempts,
+          boxNumber,
+          intervalDays,
+          lastThreeCorrect: lastThree,
+        }) === "weak"
+      );
+    }).length;
     const newCount = Math.max(0, totalQuestions - seenSet.size);
 
     const totalAnswered = states.reduce((a: number, x: any) => a + (x.total_attempts || 0), 0);
