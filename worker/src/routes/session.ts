@@ -22,7 +22,8 @@ export async function handleSession(request: Request, env: Env, pathname: string
     const sessionId = crypto.randomUUID();
     const now = Date.now();
     
-    const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}`, "question_id,total_attempts,correct_attempts,next_due_at,box_number");
+    // FIX: Added limit=1000 to ensure we load enough history for fill logic
+    const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&limit=1000`, "question_id,total_attempts,correct_attempts,next_due_at,box_number");
     
     const seenIds = new Set(states.map((s:any) => s.question_id));
     const dueIds = states
@@ -86,7 +87,7 @@ export async function handleSession(request: Request, env: Env, pathname: string
       }
     }
 
-    if (!picked.length) return json({ session_id: sessionId, questions: [] }, 200, origin);
+    if (!picked.length) return json({ attempt_id: sessionId, questions: [] }, 200, origin);
 
     const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})`, "id,stem:stem_text,options:choices_json");
     
@@ -95,79 +96,106 @@ export async function handleSession(request: Request, env: Env, pathname: string
       .map(id => qMap.get(id))
       .filter(Boolean)
       .map((q:any) => ({
+        // FIX: Changed 'id' to 'question_id' to match frontend expectation
         question_id: q.id,
         stem: q.stem,
         choices: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
       }));
 
-    return json({ session_id: sessionId, mode, size: questions.length, questions }, 200, origin);
+    // FIX: Changed 'session_id' to 'attempt_id' to match frontend expectation
+    return json({ attempt_id: sessionId, mode, size: questions.length, questions }, 200, origin);
   }
 
   // POST /answers/submit
   if (pathname === "/api/app/v1/answers/submit" && request.method === "POST") {
-    const body: any = await safeJson(request);
-    const { attempt_id, question_id, chosen_index, is_dont_know } = body;
+    try {
+      const body: any = await safeJson(request);
+      const { attempt_id, question_id, chosen_index, is_dont_know } = body;
 
-    // FIX: Select explanation_text directly
-    const q = await sbSelectOne(env, "questions", `id=eq.${question_id}`, "id,subtopic_id,correct_choice_index,explanation_text");
-    if (!q) return json({ code: "QUESTION_NOT_FOUND" }, 200, origin);
+      // FIX: Idempotency check - if attempt already exists, return previous result
+      // This prevents 500 errors on double-clicks or retries
+      const existing = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&attempt_id=eq.${attempt_id}`, "was_correct,ef_after,interval_after");
+      
+      const q = await sbSelectOne(env, "questions", `id=eq.${question_id}`, "id,subtopic_id,correct_choice_index,explanation_text");
+      if (!q) return json({ code: "QUESTION_NOT_FOUND" }, 200, origin); // Or handle stale session logic
 
-    const correctIndex = q.correct_choice_index;
-    const wasCorrect = !is_dont_know && Number(chosen_index) === Number(correctIndex);
+      if (existing) {
+         return json({ 
+          was_correct: existing.was_correct, 
+          correct_choice_index: q.correct_choice_index, 
+          explanation_text: q.explanation_text,
+          sm2: { ef: existing.ef_after, interval: existing.interval_after }
+        }, 200, origin);
+      }
 
-    let state = await sbSelectOne(env, "user_question_state", `user_id=eq.${userId}&question_id=eq.${question_id}`, "*");
-    
-    let ef = state?.ef ?? 2.5;
-    let interval = state?.interval_days ?? 0;
-    let box = state?.box_number ?? 1;
-    let totalAttempts = (state?.total_attempts ?? 0);
-    let correctAttempts = (state?.correct_attempts ?? 0);
+      const correctIndex = q.correct_choice_index;
+      const wasCorrect = !is_dont_know && Number(chosen_index) === Number(correctIndex);
 
-    const quality = is_dont_know ? 1 : (wasCorrect ? 5 : 2);
-    ef = clampEF(ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+      let state = await sbSelectOne(env, "user_question_state", `user_id=eq.${userId}&question_id=eq.${question_id}`, "*");
+      
+      let ef = state?.ef ?? 2.5;
+      let interval = state?.interval_days ?? 0;
+      let box = state?.box_number ?? 1;
+      let totalAttempts = (state?.total_attempts ?? 0);
+      let correctAttempts = (state?.correct_attempts ?? 0);
 
-    if (totalAttempts === 0) {
-        interval = 1;
-    } else if (totalAttempts === 1) {
-        interval = wasCorrect ? 6 : 1;
-    } else {
-        interval = wasCorrect ? Math.round(Math.max(1, interval) * ef) : 1;
+      const quality = is_dont_know ? 1 : (wasCorrect ? 5 : 2);
+      ef = clampEF(ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+
+      // FIX: Correct Box Logic according to PDR
+      if (is_dont_know) {
+          box = 1; // Strong penalty for Dont Know
+      } else if (wasCorrect) {
+          if (totalAttempts === 0) interval = 1;
+          else if (totalAttempts === 1) interval = 6;
+          else interval = Math.round(Math.max(1, interval) * ef);
+          
+          box = Math.min(6, box + 1);
+      } else {
+          // Wrong answer
+          interval = 1;
+          box = Math.max(1, box - 1); // Drop by 1 (PDR default) instead of 2
+      }
+
+      totalAttempts += 1;
+      if(wasCorrect) correctAttempts += 1;
+
+      const patch = {
+        user_id: userId,
+        question_id,
+        subtopic_id: q.subtopic_id,
+        ef, interval_days: interval, box_number: box,
+        next_due_at: addDaysISO(interval),
+        total_attempts: totalAttempts,
+        correct_attempts: correctAttempts,
+        last_review_at: new Date().toISOString()
+      };
+
+      if (!state) await sbInsert(env, "user_question_state", patch);
+      else await sbPatch(env, "user_question_state", `id=eq.${state.id}`, patch);
+
+      await sbInsert(env, "user_question_attempt", {
+        user_id: userId, question_id, subtopic_id: q.subtopic_id, attempt_id,
+        chosen_index, was_correct: wasCorrect, quality, ef_after: ef, interval_after: interval
+      });
+
+      await touchUser(env, userId, wasCorrect);
+
+      return json({ 
+        was_correct: wasCorrect, 
+        correct_choice_index: correctIndex, 
+        explanation_text: q.explanation_text,
+        sm2: { ef, interval, next_due: patch.next_due_at }
+      }, 200, origin);
+
+    } catch (e: any) {
+      console.error("Submit Error:", e);
+      // Handle race condition/unique constraint if check failed
+      if (e.message && e.message.includes("unique")) {
+         return json({ error: "ALREADY_PROCESSED" }, 200, origin);
+      }
+      return json({ error: "INTERNAL_ERROR" }, 500, origin);
     }
-
-    if (wasCorrect) box = Math.min(6, box + 1);
-    else box = Math.max(1, box - 2);
-
-    totalAttempts += 1;
-    if(wasCorrect) correctAttempts += 1;
-
-    const patch = {
-      user_id: userId,
-      question_id,
-      subtopic_id: q.subtopic_id,
-      ef, interval_days: interval, box_number: box,
-      next_due_at: addDaysISO(interval),
-      total_attempts: totalAttempts,
-      correct_attempts: correctAttempts,
-      last_review_at: new Date().toISOString()
-    };
-
-    if (!state) await sbInsert(env, "user_question_state", patch);
-    else await sbPatch(env, "user_question_state", `id=eq.${state.id}`, patch);
-
-    await sbInsert(env, "user_question_attempt", {
-      user_id: userId, question_id, subtopic_id: q.subtopic_id, attempt_id,
-      chosen_index, was_correct: wasCorrect, quality, ef_after: ef, interval_after: interval
-    });
-
-    await touchUser(env, userId, wasCorrect);
-
-    return json({ 
-      was_correct: wasCorrect, 
-      correct_choice_index: correctIndex, 
-      // FIX: Return as explanation_text to match frontend expectation
-      explanation_text: q.explanation_text,
-      sm2: { ef, interval, next_due: patch.next_due_at }
-    }, 200, origin);
   }
 
   // Bookmarks & Reports
