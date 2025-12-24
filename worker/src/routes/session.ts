@@ -175,8 +175,15 @@ export async function handleSession(request: Request, env: Env, pathname: string
       else await sbPatch(env, "user_question_state", `id=eq.${state.id}`, patch);
 
       await sbInsert(env, "user_question_attempt", {
-        user_id: userId, question_id, subtopic_id: q.subtopic_id, attempt_id,
-        chosen_index, was_correct: wasCorrect, quality, ef_after: ef, interval_after: interval
+        user_id: userId,
+        question_id,
+        subtopic_id: q.subtopic_id,
+        attempt_id,
+        chosen_index: is_dont_know ? null : chosen_index,
+        was_correct: wasCorrect,
+        was_dont_know: is_dont_know,
+        ef_after: ef,
+        interval_after: interval
       });
 
       await touchUser(env, userId, wasCorrect);
