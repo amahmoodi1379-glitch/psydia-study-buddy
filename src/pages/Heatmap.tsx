@@ -3,24 +3,19 @@ import { PageHeader } from '@/components/PageHeader';
 import { TabBar } from '@/components/TabBar';
 import { PageLoading } from '@/components/LoadingSpinner';
 import { EmptyState } from '@/components/EmptyState';
-import { Grid3X3 } from 'lucide-react';
+import { Flame } from 'lucide-react';
 import { api } from '@/api/client';
 import { cn } from '@/lib/utils';
-import type { HeatmapResponse, StatusLabel } from '@/api/types';
+import type { HeatmapResponse } from '@/api/types';
 
-const bucketColors: Record<StatusLabel, string> = {
-  mastered: 'bg-bucket-mastered',
-  almost: 'bg-bucket-almost',
-  in_progress: 'bg-bucket-progress',
-  beginner: 'bg-bucket-beginner',
-};
-
-const bucketLabels: Record<StatusLabel, string> = {
-  mastered: 'تسلط کامل',
-  almost: 'تقریباً تسلط',
-  in_progress: 'در حال پیشرفت',
-  beginner: 'مبتدی',
-};
+const intensityColors = [
+  'bg-secondary',
+  'bg-primary/20',
+  'bg-primary/40',
+  'bg-primary/60',
+  'bg-primary',
+];
+const intensityLabels = ['بدون فعالیت', 'کم', 'متوسط', 'زیاد', 'خیلی زیاد'];
 
 export default function Heatmap() {
   const [isLoading, setIsLoading] = useState(true);
@@ -42,25 +37,18 @@ export default function Heatmap() {
     }
   };
 
-  // Group by topic
-  const groupedByTopic = heatmap?.cells.reduce((acc, cell) => {
-    if (!acc[cell.topic_name]) {
-      acc[cell.topic_name] = [];
-    }
-    acc[cell.topic_name].push(cell);
-    return acc;
-  }, {} as Record<string, typeof heatmap.cells>);
+  const weeks = heatmap ? Math.ceil(heatmap.days.length / 7) : 0;
 
   return (
     <div className="min-h-screen pb-20">
-      <PageHeader title="نقشه پیشرفت" showBack backTo="/profile" />
+      <PageHeader title="نقشه فعالیت" showBack backTo="/profile" />
 
       <main className="px-4 py-4 max-w-lg mx-auto">
         {isLoading ? (
           <PageLoading />
-        ) : !heatmap || heatmap.cells.length === 0 ? (
+        ) : !heatmap || heatmap.days.length === 0 ? (
           <EmptyState
-            icon={Grid3X3}
+            icon={Flame}
             title="داده‌ای یافت نشد"
             description="پس از تمرین، نقشه پیشرفت شما اینجا نمایش داده می‌شود"
           />
@@ -68,44 +56,39 @@ export default function Heatmap() {
           <>
             {/* Legend */}
             <div className="flex flex-wrap gap-3 mb-6 justify-center animate-slide-up">
-              {(['mastered', 'almost', 'in_progress', 'beginner'] as StatusLabel[]).map(bucket => (
-                <div key={bucket} className="flex items-center gap-1.5">
-                  <div className={cn('w-3 h-3 rounded', bucketColors[bucket])} />
-                  <span className="text-xs text-muted-foreground">{bucketLabels[bucket]}</span>
+              {intensityLabels.map((label, index) => (
+                <div key={label} className="flex items-center gap-1.5">
+                  <div className={cn('w-3 h-3 rounded', intensityColors[index])} />
+                  <span className="text-xs text-muted-foreground">{label}</span>
                 </div>
               ))}
             </div>
 
-            {/* Grid by topic */}
-            <div className="space-y-6">
-              {groupedByTopic && Object.entries(groupedByTopic).map(([topicName, cells], topicIndex) => (
-                <div 
-                  key={topicName} 
-                  className="animate-slide-up"
-                  style={{ animationDelay: `${topicIndex * 50}ms` }}
-                >
-                  <h3 className="text-sm font-medium mb-3 text-muted-foreground">{topicName}</h3>
-                  <div className="grid grid-cols-4 gap-2">
-                    {cells.map(cell => (
-                      <div
-                        key={cell.subtopic_id}
-                        className={cn(
-                          'aspect-square rounded-lg flex flex-col items-center justify-center p-2 text-center transition-transform hover:scale-105',
-                          bucketColors[cell.bucket_label]
-                        )}
-                        title={cell.subtopic_name}
-                      >
-                        <span className="text-[10px] text-primary-foreground font-medium line-clamp-2 leading-tight">
-                          {cell.subtopic_name}
-                        </span>
-                        <span className="text-[10px] text-primary-foreground/70 mt-0.5">
-                          {cell.answered_count}
-                        </span>
-                      </div>
-                    ))}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{heatmap.days[0]?.date}</span>
+                <span>{heatmap.days[heatmap.days.length - 1]?.date}</span>
+              </div>
+              <div
+                className="grid gap-2"
+                style={{ gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}
+              >
+                {heatmap.days.map((day, index) => (
+                  <div
+                    key={`${day.date}-${index}`}
+                    className={cn(
+                      'aspect-square rounded-md flex items-center justify-center text-[10px] font-medium text-primary-foreground/80',
+                      intensityColors[Math.min(day.intensity, intensityColors.length - 1)]
+                    )}
+                    title={`${day.date} • ${day.count} سوال`}
+                  >
+                    {new Date(day.date).getUTCDate()}
                   </div>
-                </div>
-              ))}
+                ))}
+                {Array.from({ length: Math.max(0, weeks * 7 - heatmap.days.length) }).map((_, index) => (
+                  <div key={`empty-${index}`} className="aspect-square rounded-md bg-transparent" />
+                ))}
+              </div>
             </div>
           </>
         )}
