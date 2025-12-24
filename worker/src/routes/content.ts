@@ -83,13 +83,14 @@ export async function handleContent(request: Request, env: Env, pathname: string
     
     const WEAK_MIN = 3; 
     const WEAK_ACC = 0.4;
+    const SUFFICIENT_DATA_THRESHOLD = 6;
     const weakCount = states.filter((x: any) => (x.total_attempts || 0) >= WEAK_MIN && ((x.correct_attempts || 0) / Math.max(1, x.total_attempts || 0)) < WEAK_ACC).length;
     const newCount = Math.max(0, totalQuestions - seenSet.size);
 
     const totalAnswered = states.reduce((a: number, x: any) => a + (x.total_attempts || 0), 0);
     const totalCorrect = states.reduce((a: number, x: any) => a + (x.correct_attempts || 0), 0);
     const accuracy = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : null;
-    const hasSufficientData = totalAnswered >= 6;
+    const hasSufficientData = totalAnswered >= SUFFICIENT_DATA_THRESHOLD;
 
     // FIX: Table name user_question_attempts -> user_question_attempt
     const lastAttempt = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&order=created_at.desc&limit=1`, "created_at");
