@@ -89,6 +89,7 @@ export async function handleContent(request: Request, env: Env, pathname: string
     const totalAnswered = states.reduce((a: number, x: any) => a + (x.total_attempts || 0), 0);
     const totalCorrect = states.reduce((a: number, x: any) => a + (x.correct_attempts || 0), 0);
     const accuracy = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : null;
+    const hasSufficientData = totalAnswered >= 6;
 
     // FIX: Table name user_question_attempts -> user_question_attempt
     const lastAttempt = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&order=created_at.desc&limit=1`, "created_at");
@@ -102,6 +103,7 @@ export async function handleContent(request: Request, env: Env, pathname: string
       due_count: dueCount,
       weak_count: weakCount,
       new_count: newCount,
+      has_sufficient_data: hasSufficientData,
       total_answered: totalAnswered,
       accuracy_percent: accuracy,
       last_session_at: lastAttempt?.created_at ?? null,
