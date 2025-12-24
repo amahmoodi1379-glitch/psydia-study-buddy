@@ -2,6 +2,11 @@ import { Env, sbSelectOne, sbInsert, sbPatch, getOrCreateUser, mapUser } from ".
 import { json, safeJson, nowSec } from "../lib/utils";
 import { verifyTelegramInitData, signJwt, requireAuth } from "../lib/auth";
 
+const USER_SELECT_FIELDS = "id,telegram_id,display_name,avatar_id,theme,streak_current,streak_best,total_questions_answered,is_disabled,last_active_at";
+const VALID_THEMES = new Set(["light", "dark"]);
+const AVATAR_MIN_ID = 0;
+const AVATAR_MAX_ID = 29;
+
 export async function handleAuth(request: Request, env: Env, pathname: string, origin: string) {
   
   // POST /auth/telegram
@@ -48,7 +53,7 @@ export async function handleAuth(request: Request, env: Env, pathname: string, o
     const auth = await requireAuth(request, env);
     if (!auth.ok) return json({ error: auth.error }, 401, origin);
 
-    const u = await sbSelectOne(env, "users", `id=eq.${auth.uid}`, "id,telegram_id,display_name,avatar_id,theme,streak_current,streak_best,total_questions_answered,is_disabled,last_active_at");
+    const u = await sbSelectOne(env, "users", `id=eq.${auth.uid}`, USER_SELECT_FIELDS);
     
     if (!u) return json({ error: "USER_NOT_FOUND" }, 404, origin);
     return json(mapUser(u), 200, origin);
@@ -60,11 +65,35 @@ export async function handleAuth(request: Request, env: Env, pathname: string, o
     if (!auth.ok) return json({ error: auth.error }, 401, origin);
 
     const body: any = await safeJson(request);
-    const patch: Record<string, string | null> = {};
+    const patch: Record<string, string | number> = {};
 
-    if (body?.display_name !== undefined) patch.display_name = body.display_name;
-    if (body?.avatar_id !== undefined) patch.avatar_id = body.avatar_id;
-    if (body?.theme !== undefined) patch.theme = body.theme;
+    if (body?.display_name !== undefined) {
+      if (typeof body.display_name !== "string") {
+        return json({ error: "INVALID_DISPLAY_NAME" }, 400, origin);
+      }
+      const displayName = body.display_name.trim();
+      if (!displayName) {
+        return json({ error: "INVALID_DISPLAY_NAME" }, 400, origin);
+      }
+      patch.display_name = displayName;
+    }
+
+    if (body?.avatar_id !== undefined) {
+      if (!Number.isInteger(body.avatar_id)) {
+        return json({ error: "INVALID_AVATAR_ID" }, 400, origin);
+      }
+      if (body.avatar_id < AVATAR_MIN_ID || body.avatar_id > AVATAR_MAX_ID) {
+        return json({ error: "INVALID_AVATAR_ID" }, 400, origin);
+      }
+      patch.avatar_id = body.avatar_id;
+    }
+
+    if (body?.theme !== undefined) {
+      if (typeof body.theme !== "string" || !VALID_THEMES.has(body.theme)) {
+        return json({ error: "INVALID_THEME" }, 400, origin);
+      }
+      patch.theme = body.theme;
+    }
 
     if (Object.keys(patch).length === 0) {
       return json({ error: "NO_FIELDS_TO_UPDATE" }, 400, origin);
@@ -75,7 +104,7 @@ export async function handleAuth(request: Request, env: Env, pathname: string, o
 
     if (updatedUser) return json(mapUser(updatedUser), 200, origin);
 
-    const u = await sbSelectOne(env, "users", `id=eq.${auth.uid}`, "id,telegram_id,display_name,avatar_id,theme,streak_current,streak_best,total_questions_answered,is_disabled,last_active_at");
+    const u = await sbSelectOne(env, "users", `id=eq.${auth.uid}`, USER_SELECT_FIELDS);
     if (!u) return json({ error: "USER_NOT_FOUND" }, 404, origin);
     return json(mapUser(u), 200, origin);
   }
