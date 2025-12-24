@@ -161,7 +161,7 @@ export interface SubjectStats {
   bucket_mastered: number;
   bucket_weak: number;
   bucket_almost: number;
-  bucket_other: number;
+  bucket_insufficient: number;
   activity_7d: ActivityDay[];
 }
 
@@ -174,7 +174,7 @@ export interface SubtopicStats {
   bucket_mastered: number;
   bucket_weak: number;
   bucket_almost: number;
-  bucket_other: number;
+  bucket_insufficient: number;
   box_distribution: BoxDistribution[];
 }
 
@@ -183,14 +183,18 @@ export interface BoxDistribution {
   count: number;
 }
 
-export interface HeatmapDay {
-  date: string;
-  count: number;
+export interface HeatmapSubtopic {
+  subtopic_id: string;
+  subtopic_name: string;
+  topic_id: string;
+  total_questions: number;
+  mastery_percent: number;
+  confidence_percent: number;
   intensity: number;
 }
 
 export interface HeatmapResponse {
-  days: HeatmapDay[];
+  subtopics: HeatmapSubtopic[];
 }
 
 export interface ActivityDay {

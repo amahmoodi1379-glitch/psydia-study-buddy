@@ -217,7 +217,7 @@ export const mockSubjectStats = (subjectId: string): SubjectStats => ({
   bucket_mastered: 32,
   bucket_weak: 18,
   bucket_almost: 22,
-  bucket_other: 28,
+  bucket_insufficient: 28,
   activity_7d: mockActivity7D.days,
 });
 
@@ -231,7 +231,7 @@ export const mockSubtopicStats = (subtopicId: string): SubtopicStats => ({
   bucket_mastered: 35,
   bucket_weak: 15,
   bucket_almost: 20,
-  bucket_other: 30,
+  bucket_insufficient: 30,
   box_distribution: [
     { box_number: 1, count: 10 },
     { box_number: 2, count: 8 },
@@ -244,14 +244,17 @@ export const mockSubtopicStats = (subtopicId: string): SubtopicStats => ({
 
 // Mock heatmap
 export const mockHeatmap: HeatmapResponse = {
-  days: Array.from({ length: 28 }, (_, index) => {
-    const date = new Date();
-    date.setUTCDate(date.getUTCDate() - (27 - index));
-    const count = Math.floor(Math.random() * 12);
+  subtopics: Array.from({ length: 12 }, (_, index) => {
+    const mastery = Math.floor(Math.random() * 100);
+    const confidence = Math.floor(Math.random() * 100);
     return {
-      date: date.toISOString().slice(0, 10),
-      count,
-      intensity: count === 0 ? 0 : Math.min(4, Math.floor(count / 3) + 1),
+      subtopic_id: `sub-${index + 1}`,
+      subtopic_name: `زیرمبحث ${index + 1}`,
+      topic_id: `topic-${Math.floor(index / 3) + 1}`,
+      total_questions: 20 + index,
+      mastery_percent: mastery,
+      confidence_percent: confidence,
+      intensity: Math.min(4, Math.floor(mastery / 25)),
     };
   }),
 };
