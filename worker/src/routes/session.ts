@@ -1,3 +1,4 @@
+// worker/src/routes/session.ts
 import { Env, sbSelect, sbSelectOne, sbInsert, sbPatch, sbDelete, sbCount, touchUser } from "../lib/db";
 import { json, safeJson, clampInt, shuffle, pickSome, addDaysISO, clampEF } from "../lib/utils";
 import { requireAuth } from "../lib/auth";
@@ -14,42 +15,92 @@ export async function handleSession(request: Request, env: Env, pathname: string
     const mode = body?.mode;
     const size = clampInt(body?.size ?? 10, 5, 30);
 
+    const allowedModes = new Set(["daily_mix", "due_only", "weak_first", "new_only", "bookmarks", "review_free"]);
     if (!subtopicId) return json({ error: "subtopic_id required" }, 400, origin);
+    if (!allowedModes.has(mode)) return json({ error: "invalid mode" }, 400, origin);
 
     const sessionId = crypto.randomUUID();
     const now = Date.now();
-    const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}`, "question_id,total_attempts,correct_attempts,next_due_at");
+    
+    // Fetch all user states for this subtopic to make decisions
+    const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}`, "question_id,total_attempts,correct_attempts,next_due_at,box_number");
     
     const seenIds = new Set(states.map((s:any) => s.question_id));
-    const dueIds = states.filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() <= now).map((s:any) => s.question_id);
-    // (منطق انتخاب سوال اینجا خلاصه شده، کد کامل همان است که فرستاده بودید)
-    // برای سادگی فقط new_only و due_only را اینجا میذارم، اگر کد کامل را میخواهید بگویید.
-    // اما چون گفتی کد کمه، من اینجا الگوریتم اصلی رو کامل میذارم:
+    const dueIds = states
+      .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() <= now)
+      .map((s:any) => s.question_id);
+
+    const WEAK_MIN = 3;
+    const WEAK_ACC = 0.4;
+    const weakIds = states
+      .filter((s:any) => (s.total_attempts || 0) >= WEAK_MIN && ((s.correct_attempts || 0) / Math.max(1, s.total_attempts || 0)) < WEAK_ACC)
+      .map((s:any) => s.question_id);
 
     const picked: string[] = [];
     
-    if (mode === "new_only") {
+    if (mode === "due_only") {
+      picked.push(...pickSome(shuffle(dueIds), size));
+    } else if (mode === "weak_first") {
+      picked.push(...pickSome(shuffle(weakIds), size));
+      if (picked.length < size) picked.push(...pickSome(shuffle(dueIds.filter((id:any) => !picked.includes(id))), size - picked.length));
+    } else if (mode === "new_only") {
+      const need = size;
       const notIn = Array.from(seenIds).join(",") || "00000000-0000-0000-0000-000000000000";
-      const newRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${size}`, "id");
+      const newRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${need}`, "id");
       picked.push(...newRows.map((r:any) => r.id));
+    } else if (mode === "bookmarks") {
+      const b = await sbSelect(env, "user_bookmarks", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&order=created_at.desc&limit=${size}`, "question_id");
+      picked.push(...b.map((x:any) => x.question_id));
+    } else if (mode === "review_free") {
+      // Review ahead
+      const future = states
+        .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() > now)
+        .sort((a:any, b:any) => new Date(a.next_due_at).getTime() - new Date(b.next_due_at).getTime())
+        .map((s:any) => s.question_id);
+      picked.push(...pickSome(future, size));
+      if (picked.length < size) picked.push(...pickSome(shuffle(dueIds.filter((id:any) => !picked.includes(id))), size - picked.length));
     } else {
-       // Fallback simple logic for brevity here, or paste full logic
-       picked.push(...pickSome(shuffle(dueIds), size)); 
-       if(picked.length < size) {
-          const notIn = Array.from(seenIds).join(",") || "00000000-0000-0000-0000-000000000000";
-          const fill = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${size - picked.length}`, "id");
-          picked.push(...fill.map((r:any) => r.id));
-       }
+      // daily_mix
+      const dueBacklog = dueIds.length;
+      const newRatio = dueBacklog > 50 ? 0.05 : 0.15;
+      const weakRatio = 0.25;
+      const dueRatio = 1 - newRatio - weakRatio;
+
+      const dueNeed = Math.max(0, Math.round(size * dueRatio));
+      const weakNeed = Math.max(0, Math.round(size * weakRatio));
+      const newNeed = Math.max(0, size - dueNeed - weakNeed);
+
+      picked.push(...pickSome(shuffle(dueIds), dueNeed));
+      picked.push(...pickSome(shuffle(weakIds.filter((id:any) => !picked.includes(id))), weakNeed));
+
+      const seenList = Array.from(seenIds);
+      const notIn = seenList.length ? seenList.join(",") : "00000000-0000-0000-0000-000000000000";
+      const newRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${newNeed}`, "id");
+      picked.push(...newRows.map((r:any) => r.id));
+
+      if (picked.length < size) {
+        const future = states
+          .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() > now)
+          .sort((a:any, b:any) => new Date(a.next_due_at).getTime() - new Date(b.next_due_at).getTime())
+          .map((s:any) => s.question_id)
+          .filter((id:any) => !picked.includes(id));
+        picked.push(...pickSome(future, size - picked.length));
+      }
     }
 
     if (!picked.length) return json({ session_id: sessionId, questions: [] }, 200, origin);
 
     const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})`, "id,stem,options");
-    const questions = qRows.map((q:any) => ({
-      id: q.id,
-      stem: q.stem,
-      choices: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
-    }));
+    // Preserve picked order
+    const qMap = new Map(qRows.map((q:any) => [q.id, q]));
+    const questions = picked
+      .map(id => qMap.get(id))
+      .filter(Boolean)
+      .map((q:any) => ({
+        id: q.id,
+        stem: q.stem,
+        choices: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+      }));
 
     return json({ session_id: sessionId, mode, size: questions.length, questions }, 200, origin);
   }
@@ -71,17 +122,25 @@ export async function handleSession(request: Request, env: Env, pathname: string
     let ef = state?.ef ?? 2.5;
     let interval = state?.interval_days ?? 0;
     let box = state?.box_number ?? 1;
-    let totalAttempts = (state?.total_attempts ?? 0) + 1;
-    let correctAttempts = (state?.correct_attempts ?? 0) + (wasCorrect ? 1 : 0);
+    let totalAttempts = (state?.total_attempts ?? 0);
+    let correctAttempts = (state?.correct_attempts ?? 0);
 
     const quality = is_dont_know ? 1 : (wasCorrect ? 5 : 2);
     ef = clampEF(ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
 
-    if (totalAttempts === 1) interval = wasCorrect ? 1 : 1; // First view logic
-    else if (totalAttempts === 2) interval = wasCorrect ? 6 : 1;
-    else interval = wasCorrect ? Math.round(interval * ef) : 1;
+    if (totalAttempts === 0) {
+        interval = 1;
+    } else if (totalAttempts === 1) {
+        interval = wasCorrect ? 6 : 1;
+    } else {
+        interval = wasCorrect ? Math.round(Math.max(1, interval) * ef) : 1;
+    }
 
-    if (wasCorrect) box++; else box = 1;
+    if (wasCorrect) box = Math.min(6, box + 1);
+    else box = Math.max(1, box - 2); // K_DROP
+
+    totalAttempts += 1;
+    if(wasCorrect) correctAttempts += 1;
 
     const patch = {
       user_id: userId,
@@ -125,6 +184,27 @@ export async function handleSession(request: Request, env: Env, pathname: string
         await sbInsert(env, "user_bookmarks", { user_id: userId, question_id, subtopic_id });
         return json({ is_bookmarked: true }, 200, origin);
      }
+  }
+
+  if (pathname === "/api/app/v1/bookmarks/list" && request.method === "GET") {
+     const url = new URL(request.url);
+     const page = clampInt(url.searchParams.get("page") ?? 1, 1, 9999);
+     const pageSize = clampInt(url.searchParams.get("page_size") ?? 20, 1, 50);
+     const from = (page - 1) * pageSize;
+     const bRows = await sbSelect(env, "user_bookmarks", `user_id=eq.${userId}&order=created_at.desc&limit=${pageSize}&offset=${from}`, "question_id,created_at");
+     
+     if (!bRows.length) return json({ page, page_size: pageSize, total: 0, items: [] }, 200, origin);
+
+     const ids = bRows.map((r:any) => r.question_id);
+     const qRows = await sbSelect(env, "questions", `id=in.(${ids.join(",")})`, "id,stem");
+     const qMap = new Map(qRows.map((q:any) => [q.id, q]));
+     const items = bRows.map((b:any) => ({
+        question_id: b.question_id,
+        stem_preview: (qMap.get(b.question_id)?.stem ?? "").slice(0, 140),
+        bookmarked_at: b.created_at,
+     }));
+     const total = await sbCount(env, "user_bookmarks", `user_id=eq.${userId}`);
+     return json({ page, page_size: pageSize, total, items }, 200, origin);
   }
 
   if (pathname === "/api/app/v1/reports/create") {
