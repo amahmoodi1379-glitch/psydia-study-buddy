@@ -7,6 +7,7 @@ import { handleStats } from "./routes/stats";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    console.log("--- VERSION NEW: CHECKING DEPLOYMENT ---");
     const origin = request.headers.get("Origin") || "*";
     
     if (request.method === "OPTIONS") {
