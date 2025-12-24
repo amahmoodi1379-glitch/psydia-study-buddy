@@ -66,27 +66,6 @@ export const sessionStorage = {
       questions: newQuestions,
     });
   },
-
-  ensureQuestionAttemptId: (questionId: string): { attemptId: string; session: LocalSession } | null => {
-    const session = sessionStorage.get();
-    if (!session) return null;
-
-    const existingAttemptId = session.question_attempt_ids?.[questionId];
-    if (existingAttemptId) {
-      return { attemptId: existingAttemptId, session };
-    }
-
-    const attemptId = crypto.randomUUID();
-    const updatedSession: LocalSession = {
-      ...session,
-      question_attempt_ids: {
-        ...(session.question_attempt_ids ?? {}),
-        [questionId]: attemptId,
-      },
-    };
-    sessionStorage.set(updatedSession);
-    return { attemptId, session: updatedSession };
-  },
 };
 
 // Last visited subtopic
