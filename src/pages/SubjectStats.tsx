@@ -5,12 +5,13 @@ import { TabBar } from '@/components/TabBar';
 import { PageLoading } from '@/components/LoadingSpinner';
 import { api } from '@/api/client';
 import { cn } from '@/lib/utils';
-import type { SubjectStats as SubjectStatsType } from '@/api/types';
+import type { SubjectStats as SubjectStatsType, Subject } from '@/api/types';
 
 export default function SubjectStats() {
   const { subjectId } = useParams<{ subjectId: string }>();
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<SubjectStatsType | null>(null);
+  const [subject, setSubject] = useState<Subject | null>(null);
 
   useEffect(() => {
     if (subjectId) {
@@ -21,8 +22,12 @@ export default function SubjectStats() {
   const loadData = async () => {
     try {
       setIsLoading(true);
-      const data = await api.stats.subject(subjectId!);
-      setStats(data);
+      const [statsData, subjects] = await Promise.all([
+        api.stats.subject(subjectId!),
+        api.subjects.list(),
+      ]);
+      setStats(statsData);
+      setSubject(subjects.find(item => item.id === subjectId) || null);
     } catch (error) {
       console.error('Failed to load subject stats:', error);
     } finally {
@@ -53,17 +58,17 @@ export default function SubjectStats() {
   }
 
   const progress = stats.total_questions > 0 
-    ? Math.round((stats.answered_count / stats.total_questions) * 100) 
+    ? Math.round((stats.total_answered / stats.total_questions) * 100) 
     : 0;
 
   return (
     <div className="min-h-screen pb-20">
-      <PageHeader title={stats.subject_name} showBack backTo="/profile/stats" />
+      <PageHeader title={subject?.name || 'آمار درس'} showBack backTo="/profile/stats" />
 
       <main className="px-4 py-4 max-w-lg mx-auto space-y-6">
         {/* Overview card */}
         <div className="bg-card rounded-xl border border-border p-4 animate-slide-up">
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-3 gap-4 mb-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-primary">
                 {stats.accuracy_percent !== null ? `%${stats.accuracy_percent}` : '—'}
@@ -71,8 +76,12 @@ export default function SubjectStats() {
               <div className="text-xs text-muted-foreground">دقت کلی</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold">{stats.answered_count}</div>
+              <div className="text-2xl font-bold">{stats.total_answered}</div>
               <div className="text-xs text-muted-foreground">پاسخ داده شده</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold">{stats.due_today}</div>
+              <div className="text-xs text-muted-foreground">موعد امروز</div>
             </div>
           </div>
 
@@ -89,39 +98,55 @@ export default function SubjectStats() {
               />
             </div>
             <div className="text-xs text-muted-foreground mt-1 text-left">
-              {stats.answered_count} از {stats.total_questions}
+              {stats.total_answered} از {stats.total_questions}
             </div>
           </div>
         </div>
 
-        {/* Topics breakdown */}
+        {/* Buckets */}
         <div className="animate-slide-up" style={{ animationDelay: '50ms' }}>
-          <h3 className="text-sm font-medium mb-3">موضوعات</h3>
-          <div className="space-y-2">
-            {stats.topics.map((topic, index) => (
-              <div 
-                key={topic.topic_id}
+          <h3 className="text-sm font-medium mb-3">وضعیت سوالات</h3>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'تسلط کامل', value: stats.bucket_mastered, color: 'text-success' },
+              { label: 'تقریباً تسلط', value: stats.bucket_almost, color: 'text-warning' },
+              { label: 'ضعیف', value: stats.bucket_weak, color: 'text-destructive' },
+              { label: 'سایر', value: stats.bucket_other, color: 'text-muted-foreground' },
+            ].map((bucket, index) => (
+              <div
+                key={bucket.label}
                 className="bg-card rounded-xl border border-border p-4 animate-slide-up"
                 style={{ animationDelay: `${(index + 2) * 50}ms` }}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium text-sm">{topic.topic_name}</h4>
-                  <span className={cn(
-                    'text-sm font-bold',
-                    topic.accuracy_percent !== null && topic.accuracy_percent >= 70 
-                      ? 'text-success' 
-                      : topic.accuracy_percent !== null && topic.accuracy_percent >= 50 
-                      ? 'text-warning' 
-                      : 'text-muted-foreground'
-                  )}>
-                    {topic.accuracy_percent !== null ? `%${topic.accuracy_percent}` : '—'}
-                  </span>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {topic.answered_count} پاسخ
-                </div>
+                <div className={cn('text-xl font-bold mb-1', bucket.color)}>%{bucket.value}</div>
+                <div className="text-xs text-muted-foreground">{bucket.label}</div>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Activity */}
+        <div className="bg-card rounded-xl border border-border p-4 animate-slide-up" style={{ animationDelay: '100ms' }}>
+          <h3 className="text-sm font-medium mb-3">فعالیت ۷ روز اخیر</h3>
+          <div className="flex items-end justify-between gap-1 h-16">
+            {stats.activity_7d.map((day, index) => {
+              const maxCount = Math.max(...stats.activity_7d.map(d => d.count), 1);
+              const height = (day.count / maxCount) * 100;
+              return (
+                <div key={day.date} className="flex-1 flex flex-col items-center">
+                  <div 
+                    className={cn(
+                      'w-full rounded-t transition-all',
+                      day.count > 0 ? 'gradient-primary' : 'bg-secondary'
+                    )}
+                    style={{ height: `${Math.max(height, 8)}%` }}
+                  />
+                  <span className="text-[10px] text-muted-foreground mt-1">
+                    {['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'][index % 7]}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </main>
