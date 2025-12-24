@@ -43,24 +43,7 @@ export async function verifyTelegramInitData(initData: string, botToken: string)
   if (!timingSafeEqual(checkHash, hash.toLowerCase())) return { ok: false, error: "HASH_INVALID" };
 
   const userJson = params.get("user");
-  const authDateStr = params.get("auth_date"); // دریافت تاریخ به صورت رشته
-  const authDate = parseInt(authDateStr || "0", 10) || null;
-  
-  // --- بخش جدید امنیتی که اضافه کردیم ---
-  if (!authDate) {
-    return { ok: false, error: "AUTH_DATE_MISSING" };
-  }
-
-  const timeNow = Math.floor(Date.now() / 1000); // زمان فعلی به ثانیه
-  const timeDiff = timeNow - authDate; // اختلاف زمان
-  const oneDayInSeconds = 86400; // ۲۴ ساعت به ثانیه
-
-  // اگر بیشتر از یک روز گذشته باشد، خطا می‌دهیم
-  if (timeDiff > oneDayInSeconds) {
-    return { ok: false, error: "INIT_DATA_EXPIRED" };
-  }
-  // -------------------------------------
-
+  const authDate = parseInt(params.get("auth_date") || "0", 10) || null;
   let user = null;
   try { user = userJson ? JSON.parse(userJson) : null; } catch { user = null; }
 
