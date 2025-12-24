@@ -89,7 +89,7 @@ export async function handleSession(request: Request, env: Env, pathname: string
 
     if (!picked.length) return json({ attempt_id: sessionId, questions: [] }, 200, origin);
 
-    const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})`, "id,stem:stem_text,options:choices_json");
+    const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})`, "id,stem_text,options:choices_json");
     
     const qMap = new Map(qRows.map((q:any) => [q.id, q]));
     const questions = picked
@@ -98,7 +98,7 @@ export async function handleSession(request: Request, env: Env, pathname: string
       .map((q:any) => ({
         // FIX: Changed 'id' to 'question_id' to match frontend expectation
         question_id: q.id,
-        stem: q.stem,
+        stem_text: q.stem_text,
         choices: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
       }));
 
