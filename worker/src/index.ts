@@ -7,12 +7,7 @@ import { handleStats } from "./routes/stats";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // لیست سایت‌هایی که اجازه دارند به سرور وصل شوند
-    const ALLOWED_ORIGINS = [
-      "https://psydia-study-buddy.pages.dev/", // ⚠️ مهم: آدرس واقعی سایتت (فرانت‌اند) را اینجا بنویس
-      "http://localhost:5173", // برای تست روی کامپیوتر خودت
-      "http://localhost:3000"
-    ];
+    const origin = request.headers.get("Origin") || "*";
 
     const requestOrigin = request.headers.get("Origin") || "";
     // اگر آدرس درخواست‌کننده در لیست بود، اجازه بده، وگرنه رد کن
