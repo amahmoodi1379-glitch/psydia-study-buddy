@@ -208,7 +208,10 @@ export async function handleSession(request: Request, env: Env, pathname: string
   // Bookmarks & Reports
   if (pathname === "/api/app/v1/bookmarks/toggle") {
      const body: any = await safeJson(request);
-     const { question_id } = body;
+     const { question_id } = body || {};
+     if (!question_id) {
+        return json({ error: "Invalid request: missing question_id" }, 400, origin);
+     }
      const exists = await sbSelectOne(env, "user_bookmark", `user_id=eq.${userId}&question_id=eq.${question_id}`, "question_id");
      if(exists) {
         await sbDelete(env, "user_bookmark", `user_id=eq.${userId}&question_id=eq.${question_id}`);
