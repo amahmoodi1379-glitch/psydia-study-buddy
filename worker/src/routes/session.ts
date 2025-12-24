@@ -95,7 +95,7 @@ export async function handleSession(request: Request, env: Env, pathname: string
       .map(id => qMap.get(id))
       .filter(Boolean)
       .map((q:any) => ({
-        id: q.id,
+        question_id: q.id,
         stem: q.stem,
         choices: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
       }));
