@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, getToken } from "@/api/client";
 import { getInitData } from "@/lib/telegram";
 import { FullPageLoading } from "@/components/LoadingSpinner";
@@ -12,46 +12,57 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
 
-  useEffect(() => {
-    let cancelled = false;
+  const runAuth = useCallback(
+    async (signal?: { cancelled: boolean }) => {
+      const shouldCancel = () => signal?.cancelled;
 
-    const run = async () => {
       // Mock Mode: اگر BASE_URL خالیه، اصلاً auth لازم نیست
       if (!baseUrl) {
-        if (!cancelled) setStatus("ok");
+        if (!shouldCancel()) setStatus("ok");
         return;
       }
 
       // اگر توکن داریم، برو جلو
       const token = getToken();
       if (token) {
-        if (!cancelled) setStatus("ok");
+        if (!shouldCancel()) setStatus("ok");
         return;
       }
 
       // داخل تلگرام نیستیم یا initData نداریم
       const initData = getInitData();
       if (!initData) {
-        if (!cancelled) setStatus("needs_telegram");
+        if (!shouldCancel()) setStatus("needs_telegram");
         return;
       }
 
       try {
         await api.auth.telegram(initData);
-        if (!cancelled) setStatus("ok");
+        if (!shouldCancel()) setStatus("ok");
       } catch (e: any) {
-        if (!cancelled) {
+        if (!shouldCancel()) {
           setErrorMsg(e?.message || "Auth failed");
           setStatus("error");
         }
       }
-    };
+    },
+    [baseUrl]
+  );
 
-    run();
+  useEffect(() => {
+    const signal = { cancelled: false };
+
+    runAuth(signal);
     return () => {
-      cancelled = true;
+      signal.cancelled = true;
     };
-  }, [baseUrl]);
+  }, [runAuth]);
+
+  const handleRetry = () => {
+    setErrorMsg("");
+    setStatus("checking");
+    runAuth();
+  };
 
   if (status === "checking") return <FullPageLoading />;
 
@@ -61,7 +72,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         <div className="max-w-md w-full space-y-3 text-center">
           <h1 className="text-lg font-semibold">psydia</h1>
           <p className="text-sm text-muted-foreground">
-            این مینی‌اپ باید داخل تلگرام باز شود.
+            لطفاً از داخل تلگرام دوباره باز کن
           </p>
           <p className="text-xs text-muted-foreground">
             (برای تست روی مرورگر: VITE_API_BASE_URL را خالی بگذار تا Mock Mode فعال شود.)
@@ -77,7 +88,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         <div className="max-w-md w-full space-y-4 text-center">
           <h1 className="text-lg font-semibold">خطا در ورود</h1>
           <p className="text-sm text-muted-foreground">{errorMsg}</p>
-          <Button onClick={() => window.location.reload()}>تلاش دوباره</Button>
+          <Button onClick={handleRetry}>تلاش دوباره</Button>
         </div>
       </div>
     );
