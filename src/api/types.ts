@@ -138,7 +138,7 @@ export interface BookmarkListResponse {
 }
 
 // Reports
-export type ReportType = 'wrong_answer' | 'unclear_question' | 'typo' | 'other';
+export type ReportType = 'wrong_key' | 'typo' | 'ambiguous' | 'other';
 
 export interface CreateReportRequest {
   question_id: string;

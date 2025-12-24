@@ -265,14 +265,22 @@ export async function handleSession(request: Request, env: Env, pathname: string
 
   if (pathname === "/api/app/v1/reports/create") {
     const body: any = await safeJson(request);
-    const { question_id, subtopic_id, issue_type, message } = body;
-    await sbInsert(env, "question_report", { 
+    const { question_id, report_type, message } = body || {};
+    if (!question_id) {
+      return json({ error: "Invalid request: missing question_id" }, 400, origin);
+    }
+    const allowedReportTypes = new Set(["wrong_key", "typo", "ambiguous", "other"]);
+    if (!allowedReportTypes.has(report_type)) {
+      return json({ error: "Invalid request: invalid report_type" }, 400, origin);
+    }
+    const inserted = await sbInsert(env, "question_report", { 
       user_id: userId, 
       question_id, 
-      report_type: issue_type,
+      report_type,
       message 
     });
-    return json({ ok: true }, 200, origin);
+    const reportRow = Array.isArray(inserted) ? inserted[0] : inserted;
+    return json({ report_id: reportRow?.id }, 200, origin);
   }
 
   return json({ error: "Not found" }, 404, origin);

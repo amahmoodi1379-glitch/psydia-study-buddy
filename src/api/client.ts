@@ -224,9 +224,10 @@ export const api = {
         await new Promise(r => setTimeout(r, 300));
         return { report_id: 'rep_mock_123' };
       }
+      const { question_id, report_type, message } = request;
       return fetchJson<CreateReportResponse>('/api/app/v1/reports/create', {
         method: 'POST',
-        body: JSON.stringify(request),
+        body: JSON.stringify({ question_id, report_type, message }),
       });
     },
   },

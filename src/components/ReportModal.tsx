@@ -14,9 +14,9 @@ interface ReportModalProps {
 }
 
 const reportTypes: { type: ReportType; label: string }[] = [
-  { type: 'wrong_answer', label: 'پاسخ نادرست' },
-  { type: 'unclear_question', label: 'سوال نامفهوم' },
-  { type: 'typo', label: 'غلط املایی' },
+  { type: 'wrong_key', label: 'کلید اشتباه' },
+  { type: 'typo', label: 'اشتباه تایپی' },
+  { type: 'ambiguous', label: 'سوال مبهم' },
   { type: 'other', label: 'سایر' },
 ];
 
