@@ -113,12 +113,12 @@ export async function getOrCreateUser(env: Env, tgUser: any) {
 }
 
 export function mapUser(u: any) {
-  const avatarId = typeof u.avatar_id === "number" ? u.avatar_id : Number.parseInt(u.avatar_id, 10);
+  const avatarId = Number.parseInt(u.avatar_id, 10);
   return {
     id: u.id,
     telegram_id: u.telegram_id,
     display_name: u.display_name,
-    avatar_id: Number.isFinite(avatarId) ? avatarId : 0,
+    avatar_id: Number.isNaN(avatarId) ? 0 : avatarId,
     theme: u.theme,
     streak_current: u.streak_current ?? 0,
     streak_best: u.streak_best ?? 0,
