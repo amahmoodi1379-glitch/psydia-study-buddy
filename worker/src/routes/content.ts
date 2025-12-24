@@ -1,9 +1,9 @@
+// worker/src/routes/content.ts
 import { Env, sbSelect, sbCount, sbSelectOne } from "../lib/db";
 import { json, computeStatusLabel } from "../lib/utils";
 import { requireAuth } from "../lib/auth";
 
 export async function handleContent(request: Request, env: Env, pathname: string, searchParams: URLSearchParams, origin: string) {
-  // Auth Check
   const auth = await requireAuth(request, env);
   if (!auth.ok) return json({ error: auth.error }, 401, origin);
   const userId = auth.uid;
@@ -90,7 +90,8 @@ export async function handleContent(request: Request, env: Env, pathname: string
     const totalCorrect = states.reduce((a: number, x: any) => a + (x.correct_attempts || 0), 0);
     const accuracy = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : null;
 
-    const lastAttempt = await sbSelectOne(env, "user_question_attempts", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&order=created_at.desc&limit=1`, "created_at");
+    // FIX: Table name user_question_attempts -> user_question_attempt
+    const lastAttempt = await sbSelectOne(env, "user_question_attempt", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&order=created_at.desc&limit=1`, "created_at");
     
     return json({
       subtopic_id: sub.id,
