@@ -1,6 +1,6 @@
 // worker/src/routes/session.ts
 import { Env, sbSelect, sbSelectOne, sbInsert, sbPatch, sbDelete, sbCount, touchUser } from "../lib/db";
-import { json, safeJson, clampInt, shuffle, pickSome, addDaysISO, clampEF } from "../lib/utils";
+import { json, safeJson, shuffle, pickSome, addDaysISO, clampEF } from "../lib/utils";
 import { requireAuth } from "../lib/auth";
 
 const allowedReportTypes = new Set(["wrong_key", "typo", "ambiguous", "other"]);
@@ -15,27 +15,42 @@ export async function handleSession(request: Request, env: Env, pathname: string
     const body: any = await safeJson(request);
     const subtopicId = body?.subtopic_id;
     const mode = body?.mode;
-    const size = clampInt(body?.size ?? 10, 5, 30);
+    const sizeRaw = body?.size ?? 10;
+    const size = Number(sizeRaw);
+    const allowedSizes = new Set([10, 20, 30]);
 
     const allowedModes = new Set(["daily_mix", "due_only", "weak_first", "new_only", "bookmarks", "review_free"]);
     if (!subtopicId) return json({ error: "subtopic_id required" }, 400, origin);
     if (!allowedModes.has(mode)) return json({ error: "invalid mode" }, 400, origin);
+    if (!Number.isFinite(size) || !allowedSizes.has(size)) return json({ error: "invalid size" }, 400, origin);
 
     const sessionId = crypto.randomUUID();
     const now = Date.now();
     
     // FIX: Added limit=1000 to ensure we load enough history for fill logic
     const states = await sbSelect(env, "user_question_state", `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&limit=1000`, "question_id,total_attempts,correct_attempts,next_due_at,box_number");
+    const activeRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true`, "id");
+    const activeIds = new Set(activeRows.map((r:any) => r.id));
+    const cooldownCount = size;
+    const recentAttempts = await sbSelect(
+      env,
+      "user_question_attempt",
+      `user_id=eq.${userId}&subtopic_id=eq.${subtopicId}&order=created_at.desc&limit=${cooldownCount}`,
+      "question_id"
+    );
+    const cooldownIds = new Set(recentAttempts.map((r:any) => r.question_id));
+    const isEligible = (id: string) => activeIds.has(id) && !cooldownIds.has(id);
     
-    const seenIds = new Set(states.map((s:any) => s.question_id));
+    const allSeenIds = new Set(states.map((s:any) => s.question_id));
+    const seenIds = new Set(states.map((s:any) => s.question_id).filter(isEligible));
     const dueIds = states
-      .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() <= now)
+      .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() <= now && isEligible(s.question_id))
       .map((s:any) => s.question_id);
 
     const WEAK_MIN = 3;
     const WEAK_ACC = 0.4;
     const weakIds = states
-      .filter((s:any) => (s.total_attempts || 0) >= WEAK_MIN && ((s.correct_attempts || 0) / Math.max(1, s.total_attempts || 0)) < WEAK_ACC)
+      .filter((s:any) => (s.total_attempts || 0) >= WEAK_MIN && ((s.correct_attempts || 0) / Math.max(1, s.total_attempts || 0)) < WEAK_ACC && isEligible(s.question_id))
       .map((s:any) => s.question_id);
 
     const picked: string[] = [];
@@ -47,18 +62,19 @@ export async function handleSession(request: Request, env: Env, pathname: string
       if (picked.length < size) picked.push(...pickSome(shuffle(dueIds.filter((id:any) => !picked.includes(id))), size - picked.length));
     } else if (mode === "new_only") {
       const need = size;
-      const notIn = Array.from(seenIds).join(",") || "00000000-0000-0000-0000-000000000000";
+      const notInSet = new Set([...allSeenIds, ...cooldownIds]);
+      const notIn = Array.from(notInSet).join(",") || "00000000-0000-0000-0000-000000000000";
       const newRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${need}`, "id");
       picked.push(...newRows.map((r:any) => r.id));
     } else if (mode === "bookmarks") {
       const b = await sbSelect(env, "user_bookmark", `user_id=eq.${userId}&order=created_at.desc&limit=${size}`, "question_id");
-      picked.push(...b.map((x:any) => x.question_id));
+      picked.push(...b.map((x:any) => x.question_id).filter(isEligible));
     } else if (mode === "review_free") {
       const future = states
         .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() > now)
         .sort((a:any, b:any) => new Date(a.next_due_at).getTime() - new Date(b.next_due_at).getTime())
         .map((s:any) => s.question_id);
-      picked.push(...pickSome(future, size));
+      picked.push(...pickSome(future.filter(isEligible), size));
       if (picked.length < size) picked.push(...pickSome(shuffle(dueIds.filter((id:any) => !picked.includes(id))), size - picked.length));
     } else {
       // daily_mix
@@ -74,7 +90,7 @@ export async function handleSession(request: Request, env: Env, pathname: string
       picked.push(...pickSome(shuffle(dueIds), dueNeed));
       picked.push(...pickSome(shuffle(weakIds.filter((id:any) => !picked.includes(id))), weakNeed));
 
-      const seenList = Array.from(seenIds);
+      const seenList = Array.from(new Set([...allSeenIds, ...cooldownIds]));
       const notIn = seenList.length ? seenList.join(",") : "00000000-0000-0000-0000-000000000000";
       const newRows = await sbSelect(env, "questions", `subtopic_id=eq.${subtopicId}&is_active=eq.true&id=not.in.(${notIn})&limit=${newNeed}`, "id");
       picked.push(...newRows.map((r:any) => r.id));
@@ -84,14 +100,15 @@ export async function handleSession(request: Request, env: Env, pathname: string
           .filter((s:any) => s.next_due_at && new Date(s.next_due_at).getTime() > now)
           .sort((a:any, b:any) => new Date(a.next_due_at).getTime() - new Date(b.next_due_at).getTime())
           .map((s:any) => s.question_id)
-          .filter((id:any) => !picked.includes(id));
+          .filter((id:any) => !picked.includes(id))
+          .filter(isEligible);
         picked.push(...pickSome(future, size - picked.length));
       }
     }
 
     if (!picked.length) return json({ attempt_id: sessionId, questions: [] }, 200, origin);
 
-    const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})`, "id,stem_text,options:choices_json");
+    const qRows = await sbSelect(env, "questions", `id=in.(${picked.join(",")})&is_active=eq.true`, "id,stem_text,options:choices_json");
     
     const qMap = new Map(qRows.map((q:any) => [q.id, q]));
     const questions = picked
