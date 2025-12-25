@@ -77,15 +77,8 @@ export function QuestionCard({
 
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <div className="text-sm text-muted-foreground">
-            سوال {questionNumber} از {totalQuestions}
-          </div>
-          {question.is_review_ahead && (
-            <span className="text-xs text-warning bg-warning/10 px-2 py-1 rounded-full">
-              مرور جلوتر از موعد
-            </span>
-          )}
+        <div className="text-sm text-muted-foreground">
+          سوال {questionNumber} از {totalQuestions}
         </div>
         <div className="flex items-center gap-1">
           <button

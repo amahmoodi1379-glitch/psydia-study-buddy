@@ -105,25 +105,21 @@ const sampleQuestions: SessionQuestion[] = [
     question_id: 'q_1',
     stem_text: 'کدام یک از نظریه‌پردازان زیر، هوش را به صورت عامل عمومی (g) تعریف کرده است؟',
     choices: ['گاردنر', 'اسپیرمن', 'استرنبرگ', 'گیلفورد'],
-    is_review_ahead: false,
   },
   {
     question_id: 'q_2',
     stem_text: 'در نظریه هوش چندگانه گاردنر، توانایی درک و تحلیل احساسات دیگران مربوط به کدام نوع هوش است؟',
     choices: ['هوش درون‌فردی', 'هوش بین‌فردی', 'هوش زبانی', 'هوش موسیقیایی'],
-    is_review_ahead: false,
   },
   {
     question_id: 'q_3',
     stem_text: 'آزمون هوش وکسلر بزرگسالان (WAIS) شامل چند خرده‌آزمون است؟',
     choices: ['۱۰ خرده‌آزمون', '۱۵ خرده‌آزمون', '۱۱ خرده‌آزمون', '۱۲ خرده‌آزمون'],
-    is_review_ahead: false,
   },
   {
     question_id: 'q_4',
     stem_text: 'مفهوم "سن عقلی" اولین بار توسط چه کسی مطرح شد؟',
     choices: ['ترمن', 'بینه', 'وکسلر', 'کتل'],
-    is_review_ahead: false,
   },
   {
     question_id: 'q_5',
@@ -134,7 +130,6 @@ const sampleQuestions: SessionQuestion[] = [
       'به دانش انباشته شده بستگی دارد',
       'در طول زندگی ثابت می‌ماند',
     ],
-    is_review_ahead: false,
   },
 ];
 
@@ -146,7 +141,6 @@ const generateQuestions = (count: number): SessionQuestion[] => {
     questions.push({
       ...base,
       question_id: `q_${randomId()}`,
-      is_review_ahead: Math.random() > 0.6,
     });
   }
   return questions;
@@ -210,50 +204,42 @@ export const mockBookmarks: BookmarkListResponse = {
 // Mock subject stats
 export const mockSubjectStats = (subjectId: string): SubjectStats => ({
   subject_id: subjectId,
+  subject_name: mockSubjects.find(s => s.id === subjectId)?.name || 'درس',
   total_questions: 450,
-  total_answered: 186,
+  answered_count: 186,
   accuracy_percent: 68,
-  due_today: 12,
-  bucket_mastered: 32,
-  bucket_weak: 18,
-  bucket_almost: 22,
-  bucket_other: 28,
-  activity_7d: mockActivity7D.days,
+  topics: [
+    { topic_id: 'top_1', topic_name: 'موضوع ۱', answered_count: 52, accuracy_percent: 75 },
+    { topic_id: 'top_2', topic_name: 'موضوع ۲', answered_count: 45, accuracy_percent: 62 },
+    { topic_id: 'top_3', topic_name: 'موضوع ۳', answered_count: 89, accuracy_percent: 71 },
+  ],
 });
 
 // Mock subtopic stats
 export const mockSubtopicStats = (subtopicId: string): SubtopicStats => ({
   subtopic_id: subtopicId,
+  subtopic_name: 'زیرموضوع آزمایشی',
+  topic_name: 'موضوع آزمایشی',
+  subject_name: 'درس آزمایشی',
   total_questions: 45,
-  total_answered: 28,
+  answered_count: 28,
+  due_count: 8,
+  weak_count: 4,
   accuracy_percent: 72,
-  due_today: 8,
-  bucket_mastered: 35,
-  bucket_weak: 15,
-  bucket_almost: 20,
-  bucket_other: 30,
-  box_distribution: [
-    { box_number: 1, count: 10 },
-    { box_number: 2, count: 8 },
-    { box_number: 3, count: 6 },
-    { box_number: 4, count: 5 },
-    { box_number: 5, count: 3 },
-    { box_number: 6, count: 1 },
-  ],
+  sessions_count: 5,
+  avg_session_accuracy: 70,
 });
 
 // Mock heatmap
 export const mockHeatmap: HeatmapResponse = {
-  days: Array.from({ length: 28 }, (_, index) => {
-    const date = new Date();
-    date.setUTCDate(date.getUTCDate() - (27 - index));
-    const count = Math.floor(Math.random() * 12);
-    return {
-      date: date.toISOString().slice(0, 10),
-      count,
-      intensity: count === 0 ? 0 : Math.min(4, Math.floor(count / 3) + 1),
-    };
-  }),
+  cells: [
+    { subtopic_id: 'sbt_1', subtopic_name: 'نظریه‌های هوش', topic_name: 'هوش', bucket_label: 'mastered', answered_count: 45 },
+    { subtopic_id: 'sbt_2', subtopic_name: 'آزمون‌های هوش', topic_name: 'هوش', bucket_label: 'almost', answered_count: 38 },
+    { subtopic_id: 'sbt_3', subtopic_name: 'شرطی‌سازی', topic_name: 'یادگیری', bucket_label: 'in_progress', answered_count: 25 },
+    { subtopic_id: 'sbt_4', subtopic_name: 'حافظه کوتاه‌مدت', topic_name: 'حافظه', bucket_label: 'beginner', answered_count: 10 },
+    { subtopic_id: 'sbt_5', subtopic_name: 'انگیزش درونی', topic_name: 'انگیزش', bucket_label: 'beginner', answered_count: 5 },
+    { subtopic_id: 'sbt_6', subtopic_name: 'رشد جنینی', topic_name: 'رشد', bucket_label: 'mastered', answered_count: 42 },
+  ],
 };
 
 // Mock activity

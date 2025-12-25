@@ -44,7 +44,6 @@ const USE_MOCK = !BASE_URL;
 
 // Token storage
 const TOKEN_KEY = 'psydia_auth_token';
-let subjectsCache: Subject[] | null = null;
 
 export const getToken = (): string | null => {
   return localStorage.getItem(TOKEN_KEY);
@@ -124,16 +123,11 @@ export const api = {
   // Navigation
   subjects: {
     list: async (): Promise<Subject[]> => {
-      if (subjectsCache) {
-        return subjectsCache;
-      }
       if (USE_MOCK) {
         await new Promise(r => setTimeout(r, 200));
-        subjectsCache = mockSubjects;
-        return subjectsCache;
+        return mockSubjects;
       }
-      subjectsCache = await fetchJson<Subject[]>('/api/app/v1/subjects');
-      return subjectsCache;
+      return fetchJson<Subject[]>('/api/app/v1/subjects');
     },
   },
 
@@ -224,10 +218,9 @@ export const api = {
         await new Promise(r => setTimeout(r, 300));
         return { report_id: 'rep_mock_123' };
       }
-      const { question_id, report_type, message } = request;
       return fetchJson<CreateReportResponse>('/api/app/v1/reports/create', {
         method: 'POST',
-        body: JSON.stringify({ question_id, report_type, message }),
+        body: JSON.stringify(request),
       });
     },
   },

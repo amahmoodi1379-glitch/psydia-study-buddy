@@ -84,7 +84,6 @@ export interface SessionQuestion {
   question_id: string;
   stem_text: string;
   choices: [string, string, string, string];
-  is_review_ahead: boolean;
 }
 
 export interface CreateSessionResponse {
@@ -139,7 +138,7 @@ export interface BookmarkListResponse {
 }
 
 // Reports
-export type ReportType = 'wrong_key' | 'typo' | 'ambiguous' | 'other';
+export type ReportType = 'wrong_answer' | 'unclear_question' | 'typo' | 'other';
 
 export interface CreateReportRequest {
   question_id: string;
@@ -154,43 +153,44 @@ export interface CreateReportResponse {
 // Stats
 export interface SubjectStats {
   subject_id: string;
+  subject_name: string;
   total_questions: number;
-  total_answered: number;
+  answered_count: number;
   accuracy_percent: number | null;
-  due_today: number;
-  bucket_mastered: number;
-  bucket_weak: number;
-  bucket_almost: number;
-  bucket_other: number;
-  activity_7d: ActivityDay[];
+  topics: TopicStatSummary[];
+}
+
+export interface TopicStatSummary {
+  topic_id: string;
+  topic_name: string;
+  answered_count: number;
+  accuracy_percent: number | null;
 }
 
 export interface SubtopicStats {
   subtopic_id: string;
+  subtopic_name: string;
+  topic_name: string;
+  subject_name: string;
   total_questions: number;
-  total_answered: number;
+  answered_count: number;
+  due_count: number;
+  weak_count: number;
   accuracy_percent: number | null;
-  due_today: number;
-  bucket_mastered: number;
-  bucket_weak: number;
-  bucket_almost: number;
-  bucket_other: number;
-  box_distribution: BoxDistribution[];
+  sessions_count: number;
+  avg_session_accuracy: number | null;
 }
 
-export interface BoxDistribution {
-  box_number: number;
-  count: number;
-}
-
-export interface HeatmapDay {
-  date: string;
-  count: number;
-  intensity: number;
+export interface HeatmapCell {
+  subtopic_id: string;
+  subtopic_name: string;
+  topic_name: string;
+  bucket_label: StatusLabel;
+  answered_count: number;
 }
 
 export interface HeatmapResponse {
-  days: HeatmapDay[];
+  cells: HeatmapCell[];
 }
 
 export interface ActivityDay {

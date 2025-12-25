@@ -14,7 +14,7 @@ export function DailyPlanCard({ lastSubtopic }: DailyPlanCardProps) {
     if (lastSubtopic) {
       navigate(`/hub/${lastSubtopic.id}`);
     } else {
-      navigate('/');
+      navigate('/subjects');
     }
   };
 
